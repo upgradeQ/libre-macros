@@ -1,10 +1,10 @@
 # Description 
-*obs-libre-macros* is an Extension for OBS Studio built on top of its scripting facilities,
+**obs-libre-macros** is an Extension for OBS Studio built on top of its scripting facilities,
 utilising built-in embedded LuaJIT interpreter, filter UI and function environment from Lua 5.2
 
 # Features 
-- Attach `Console` to *any* source in real-time.
-- *Auto run* code when OBS starts, *load from file*, *Hot reload* expressions.
+- Attach `Console` to **any** source in real-time.
+- **Auto run** code when OBS starts, **load from file**, **Hot reload** expressions.
 - Hotkeys support for each `Console` instance.
 - Integration with 3-rd party plugins and scripts via `obs_data_json_settings` e.g:
   - [move transition](https://github.com/exeldro/obs-move-transition) - latest versions include `audio move filter` which monitors source volume level.
@@ -76,7 +76,8 @@ There are 2 types of hotkeys:
  - Second, prefixed with `1;`- it will mutate `t.pressed` state
 
 # License
-The *obs-libre-macros* is free software: you can redistribute it and/or modify it under the terms of
-the GNU Affero General Public License as published by the Free Software Foundation, either version 3 of the License,
-or (at your option) any later version. See also: https://www.gnu.org/licenses/agpl-3.0.en.html
-[![AGPLv3](https://www.gnu.org/graphics/agplv3-with-text-162x68.png)](https://www.gnu.org/licenses/agpl-3.0.html)
+<a href="https://www.gnu.org/licenses/agpl-3.0.en.html">
+<img src="https://www.gnu.org/graphics/agplv3-with-text-162x68.png" align="right" />
+</a>
+
+The **obs-libre-macros** is free software: you can redistribute it and/or modify it under the terms of the GNU Affero General Public License as published by the Free Software Foundation, either version 3 of the License, or (at your option) any later version. That means that if users interacting with it remotely through a network: If you **not** modified, then you can direct them [here](https://github.com/upgradeQ/obs-libre-macros), if you **modified** it, you simply have to publish your modifications. The easiest way to do this is to have a public Github repository of your fork or create a PR upstream. Otherwise, you will be in violation of the license. The relevant part of the license is under section 13 of the AGPLv3.  
