@@ -75,6 +75,115 @@ There are 2 types of hotkeys:
  - First,can be found in settings with prefixed `0;` - it will execute code in text area
  - Second, prefixed with `1;`- it will mutate `t.pressed` state
 
+# Examples
+High frequency blinking source:  
+- [x] Auto run
+```lua
+while true do 
+sleep(0.03)
+obs.obs_source_set_enabled(t.source,true) 
+sleep(0.03)
+obs.obs_source_set_enabled(t.source,false) 
+end
+```
+
+Print source name while holding hotkey:
+```lua
+repeat
+sleep(0.1)
+if t.pressed then print_source_name(t.source) end 
+until false 
+```
+
+Hot reload with delay:
+```lua
+print('restarted') -- expression print_source_name(t.source)
+local delay = 0.5
+while true do
+local f=load('local t= __t;' .. t.hotreload)
+success, result = pcall(f)
+if not success then print(result) end
+sleep(delay)
+end
+```
+Shake a text source and update its text based on location from scene (using code from [wiki](https://github.com/obsproject/obs-studio/wiki/Scripting-Tutorial-Source-Shake))
+Paste into `Console` or load from file this code:
+```lua
+function get_sceneitem_from_source_name_in_current_scene(name)
+  local result_sceneitem = nil
+  local current_scene_as_source = obs.obs_frontend_get_current_scene()
+  if current_scene_as_source then
+    local current_scene = obs.obs_scene_from_source(current_scene_as_source)
+    result_sceneitem = obs.obs_scene_find_source_recursive(current_scene, name)
+    obs.obs_source_release(current_scene_as_source)
+  end
+  return result_sceneitem
+end
+local source_name = obs.obs_source_get_name(t.source)
+local sceneitem = get_sceneitem_from_source_name_in_current_scene(source_name)
+local amplitude , shaken_sceneitem_angle , frequency = 10,0,2
+local pos = obs.vec2()
+
+local function update_text(source,text)
+  local settings = obs.obs_data_create()
+  obs.obs_data_set_string(settings, "text", text)
+  obs.obs_source_update(source, settings)
+  obs.obs_data_release(settings)
+end
+local function get_position(opts)
+  return "pos x: " .. opts.x .. " y: " .. opts.y
+end
+repeat 
+  sleep(0) -- sometimes obs freezes if sceneitem is dragged
+  local angle = shaken_sceneitem_angle + amplitude*math.sin(os.clock()*frequency*2*math.pi)
+  obs.obs_sceneitem_set_rot(sceneitem, angle)
+  obs.obs_sceneitem_get_pos(sceneitem,pos)
+  local result = get_position { x = pos.x, y = pos.y }
+  update_text(t.source,result)
+until false
+```
+
+Print a source name every second while also print current filters attached to source in `t.tasks`, shutdown this task after 10 seconds
+
+```lua
+function print_filters()
+  repeat
+  local filters_list = obs.obs_source_enum_filters(t.source)
+  for _,fs in pairs(filters_list) do
+    print_source_name(fs)
+  end
+  obs.source_list_release(result)
+  sleep(math.random())
+  until false
+end
+
+t.tasks[1] = run(print_filters)
+function shutdown_all()
+ for task,_coro in pairs(t.tasks) do 
+   t.tasks[task] = nil
+ end
+end
+
+t.tasks[2] = run(function()
+  sleep(10)
+  shutdown_all()
+end)
+
+repeat 
+sleep(1)
+print_source_name(t.source)
+until false
+```
+Using [move-transition plugin](https://obsproject.com/forum/resources/move-transition.913/) with its move-audio filter, redirect to `t.mv2`, then show value of `t.mv2` in `Script Log`
+- [x] Headphones on
+```lua
+repeat 
+sleep(0.3)
+print(t.mv2)
+until false
+```
+
+
 # License
 <a href="https://www.gnu.org/licenses/agpl-3.0.en.html">
 <img src="https://www.gnu.org/graphics/agplv3-with-text-162x68.png" align="right" />
