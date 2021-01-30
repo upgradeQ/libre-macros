@@ -1,4 +1,4 @@
-copyright = [[
+copyleft = [[
 obs-libre-macros - scripting and macros hotkeys in OBS Studio for Humans
 Contact/URL https://www.github.com/upgradeQ/obs-libre-macros
 Copyright (C) 2021 upgradeQ 
@@ -16,17 +16,18 @@ GNU Affero General Public License for more details.
 You should have received a copy of the GNU Affero General Public License
 along with this program.  If not, see <https://www.gnu.org/licenses/>.
 ]]
-print(copyright)
-obs_libre_macros_version = "0.1.0"
+print(copyleft)
+obs_libre_macros_version = "0.2.0"
 obs = obslua -- needs to be global for use in repl
 ffi = require "ffi"
+jit = require "jit"
+bit = require "bit"
 
 if ffi.os == "OSX" then
   obsffi = ffi.load("obs.0.dylib")
 else
   obsffi = ffi.load("obs")
 end
-
 
 run = coroutine.create
 gn = {}
@@ -40,15 +41,15 @@ function Timer:init(o)
 end
 
 function Timer:update(dt)
-  self.current_time = self.current_time + dt
-  if self.current_time >= self.delay then
+  self.current_accumulated_time = self.current_accumulated_time + dt 
+  if self.current_accumulated_time >= self.duration then
     self.finished = true
   end
 end
 
 function Timer:enter()
   self.finished = false
-  self.current_time = 0
+  self.current_accumulated_time = 0
 end
 
 function Timer:launch()
@@ -60,7 +61,7 @@ function Timer:launch()
 end
 
 function sleep(s)
-  local action = Timer:init{delay=s}
+  local action = Timer:init{duration=s}
   action:launch()
 end
 
@@ -88,9 +89,171 @@ function viewer()
   error(">Script Log")
 end
 
+--~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~wwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwww
+
 function print_source_name(source)
   print(obs.obs_source_get_name(source))
 end
+
+function sname(source)
+  return obs.obs_source_get_name(source)
+end
+
+function get_scene_sceneitem(scene_name,scene_item_name)
+  local sceneitem;
+  local scenes = obs.obs_frontend_get_scenes()
+  for _,scene in pairs(scenes) do
+    if sname(scene) == scene_name then
+      scene = obs.obs_scene_from_source(scene)
+      sceneitem = obs.obs_scene_find_source_recursive(scene,scene_item_name)
+    end
+  end
+  obs.source_list_release(scenes)
+  return sceneitem
+end
+
+LMB,RMB,MOUSE_HOOKED = false,false,false
+function htk_1_cb(pressed) LMB = pressed end
+function htk_2_cb(pressed) RMB = pressed end
+function hook_mouse_buttons()
+  if MOUSE_HOOKED then return error('already hooked mouse') end
+  local key_1 = '{"htk_1_mouse": [ { "key": "OBS_KEY_MOUSE1" } ],'
+  local key_2 = '"htk_2_mouse": [ { "key": "OBS_KEY_MOUSE2" } ]}'
+  local json_s = key_1 .. key_2
+  local default_hotkeys = {
+    {id='htk_1_mouse',des='LMB state',callback=htk_1_cb},
+    {id='htk_2_mouse',des='RMB state',callback=htk_2_cb},
+  }
+  local s = obs.obs_data_create_from_json(json_s)
+  for _,v in pairs(default_hotkeys) do
+    local a = obs.obs_data_get_array(s,v.id)
+    h = obs.obs_hotkey_register_frontend(v.id,v.des,v.callback)
+    obs.obs_hotkey_load(h,a)
+    obs.obs_data_array_release(a)
+  end
+  obs.obs_data_release(s)
+  MOUSE_HOOKED = true
+end
+
+function send_hotkey(hotkey_id_name,key_modifiers)
+  local key_modifiers = key_modifiers or {}
+  local shift = key_modifiers.shift or false
+  local control = key_modifiers.control or false
+  local alt = key_modifiers.alt or false
+  local command = key_modifiers.command or false
+  local modifiers = 0
+
+  if shift then modifiers = bit.bor(modifiers,obs.INTERACT_SHIFT_KEY ) end
+  if control then modifiers = bit.bor(modifiers,obs.INTERACT_CONTROL_KEY ) end
+  if alt then modifiers = bit.bor(modifiers,obs.INTERACT_ALT_KEY ) end
+  if command then modifiers = bit.bor(modifiers,obs.INTERACT_COMMAND_KEY ) end
+
+  local combo = obs.obs_key_combination()
+  combo.modifiers = modifiers
+  combo.key = obs.obs_key_from_name(hotkey_id_name)
+
+  if not modifiers and -- there is should be OBS_KEY_NONE, but it is missing in obslua
+    (combo.key == 0 or combo.key >= obs.OBS_KEY_LAST_VALUE) then
+    return error('invalid key-modifier combination')
+  end
+
+  obs.obs_hotkey_inject_event(combo,false)
+  obs.obs_hotkey_inject_event(combo,true)
+  obs.obs_hotkey_inject_event(combo,false)
+end
+
+function send_hotkey_to_browser_source(source,hotkey_id_name)
+  local key = obs.obs_key_from_name(hotkey_id_name)
+  local vk = obs.obs_key_to_virtual_key(key)
+  local event = obs.obs_key_event()
+  event.native_vkey = vk
+  event.native_modifiers = 0
+  event.native_scancode = 0
+  event.modifiers = 0
+  event.text = ""
+  obs.obs_source_send_key_click(source,event,false)
+  obs.obs_source_send_key_click(source,event,true)
+end
+
+ffi.cdef[[
+typedef struct obs_hotkey obs_hotkey_t;
+typedef size_t obs_hotkey_id;
+
+const char *obs_hotkey_get_name(const obs_hotkey_t *key);
+typedef bool (*obs_hotkey_enum_func)(void *data, obs_hotkey_id id, obs_hotkey_t *key);
+void obs_enum_hotkeys(obs_hotkey_enum_func func, void *data);
+]]
+
+function trigger_from_hotkey_callback(description)
+  local htk_id;
+  function callback_htk(data,id,key)
+    local name = obsffi.obs_hotkey_get_name(key)
+    if ffi.string(name) == description then
+      htk_id = tonumber(id)
+      return false
+    else
+      return true
+    end
+  end
+  local cb = ffi.cast("obs_hotkey_enum_func",callback_htk) 
+  obsffi.obs_enum_hotkeys(cb,nil)
+  if htk_id then
+    obs.obs_hotkey_trigger_routed_callback(htk_id,false)
+    obs.obs_hotkey_trigger_routed_callback(htk_id,true)
+    obs.obs_hotkey_trigger_routed_callback(htk_id,false)
+  end
+end
+
+ffi.cdef[[
+typedef struct obs_source obs_source_t;
+obs_source_t *obs_get_source_by_name(const char *name);
+void obs_source_release(obs_source_t *source);
+
+enum obs_fader_type {
+	OBS_FADER_CUBIC,
+	OBS_FADER_IEC,
+	OBS_FADER_LOG
+};
+
+typedef struct obs_volmeter obs_volmeter_t;
+
+bool obs_volmeter_attach_source(obs_volmeter_t *volmeter,
+				       obs_source_t *source);
+
+int MAX_AUDIO_CHANNELS;
+
+obs_volmeter_t *obs_volmeter_create(enum obs_fader_type type);
+
+typedef void (*obs_volmeter_updated_t)(
+	void *param, const float magnitude[MAX_AUDIO_CHANNELS],
+	const float peak[MAX_AUDIO_CHANNELS],
+	const float input_peak[MAX_AUDIO_CHANNELS]);
+
+void obs_volmeter_add_callback(obs_volmeter_t *volmeter,
+				      obs_volmeter_updated_t callback,
+				      void *param);
+]]
+
+LVL,NOISE,LOCK = "?",0,false
+function callback_meter(data,mag,peak,input)
+  LVL = 'Volume lvl is :' .. tostring(tonumber(peak[0]))
+  NOISE = tonumber(peak[0])
+end
+
+jit.off(callback_meter) 
+
+function volume_level(source_name)
+  if LOCK then return error("cannot attach to more than 1 source") end
+  local source = obsffi.obs_get_source_by_name(source_name)
+  local volmeter = obsffi.obs_volmeter_create(obsffi.OBS_FADER_LOG)
+  -- https://github.com/WarmUpTill/SceneSwitcher/blob/214821b69f5ade803a4919dc9386f6351583faca/src/switch-audio.cpp#L194-L207
+  local cb = ffi.cast("obs_volmeter_updated_t",callback_meter)
+  obsffi.obs_volmeter_add_callback(volmeter,cb,nil)
+  obsffi.obs_volmeter_attach_source(volmeter,source)
+  obsffi.obs_source_release(source)
+  LOCK = true
+end
+
 
 --~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~wwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwww
 

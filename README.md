@@ -1,6 +1,9 @@
 # Description 
 **obs-libre-macros** is an Extension for OBS Studio built on top of its scripting facilities,
 utilising built-in embedded LuaJIT interpreter, filter UI and function environment from Lua 5.2
+# Screenshot
+
+![img](https://i.imgur.com/10IrnOu.png)
 
 # Features 
 - Attach `Console` to **any** source in real-time.
@@ -183,10 +186,61 @@ print(t.mv2)
 until false
 ```
 
+Attach volmeter to source with sound(same as above, but without plugin):
+
+```lua
+volume_level(return_source_name(t.source))
+repeat
+sleep(1)
+print(LVL)
+print(NOISE)
+until false
+```
+
+Start virtual camera as a triggered named callback:
+
+```lua
+local description = 'OBSBasic.StartVirtualCam'
+trigger_from_hotkey_callback(description)
+```
+
+Send hotkey combination to OBS:
+```lua
+send_hotkey('OBS_KEY_2',{shift=true})
+```
+
+Hook state of right and left mouse buttons:
+```lua
+hook_mouse_buttons()
+repeat 
+sleep(0.1)
+print(tostring(LMB))
+print(tostring(RMB))
+until false
+```
+
+Access sceneitem from scene:
+```lua
+local sceneitem = get_scene_sceneitem("Scene 2",sname(t.source))
+repeat 
+sleep(0.01)
+if sceneitem then
+  obs.obs_sceneitem_set_rot(sceneitem, math.sin(math.random() * 100))
+  end
+until false
+```
+
+Send keyboard key to browser :
+```lua
+send_hotkey_to_browser_source(t.source,"OBS_KEY_Q")
+```
+
+# Contribute
+Contributions are welcome!
 
 # License
 <a href="https://www.gnu.org/licenses/agpl-3.0.en.html">
 <img src="https://www.gnu.org/graphics/agplv3-with-text-162x68.png" align="right" />
 </a>
 
-The **obs-libre-macros** is free software: you can redistribute it and/or modify it under the terms of the GNU Affero General Public License as published by the Free Software Foundation, either version 3 of the License, or (at your option) any later version. That means that if users interacting with it remotely through a network: If you **not** modified, then you can direct them [here](https://github.com/upgradeQ/obs-libre-macros), if you **modified** it, you simply have to publish your modifications. The easiest way to do this is to have a public Github repository of your fork or create a PR upstream. Otherwise, you will be in violation of the license. The relevant part of the license is under section 13 of the AGPLv3.  
+The **obs-libre-macros** is free software: you can redistribute it and/or modify it under the terms of the GNU Affero General Public License as published by the Free Software Foundation, either version 3 of the License, or (at your option) any later version. That means that if users interacting with it remotely through a network then: If you **not** modified it, then you can direct them [here](https://github.com/upgradeQ/obs-libre-macros), if you **modified** it, you simply have to publish your modifications. The easiest way to do this is to have a public Github repository of your fork or create a PR upstream. Otherwise, you will be in violation of the license. The relevant part of the license is under section 13 of the AGPLv3.  
