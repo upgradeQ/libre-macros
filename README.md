@@ -20,8 +20,11 @@ utilising built-in embedded LuaJIT interpreter, filter UI and function environme
   - `obslua` - accessed via `obs` and `obsffi` - native linked library.
   - Share GLOBAL state between `Console` instances via `gn` - global namespace.
   - `t.<setting_name>` - various settings
-- Crossplatform.
+- Crossplatform, works offline.
 - View output of `print` in `Script Log`.
+```diff
++Browser source keyboard and mouse interaction+
+```
 
 # Installation 
 - One time setup 
@@ -229,14 +232,101 @@ if sceneitem then
   end
 until false
 ```
-
-Send keyboard key to browser :
+Route audio move value filter from obs-move-transition to change console settings
+Attach console to image source, add images to directory with `console.lua`
+In audio move set `Input Peak Sample`,select `Move value[0,100] 1` base value `1`, factor `100`
 ```lua
-send_hotkey_to_browser_source(t.source,"OBS_KEY_Q")
+function update_image(state)
+  local settings = obs.obs_data_create()
+  obs.obs_data_set_string(settings, "file", script_path() .. state)
+  obs.obs_source_update(t.source, settings)
+  obs.obs_data_release(settings)
+end
+local skip,scream,normal,silent = false,30,20,20
+while true do ::continue::
+  sleep(0.03)
+  if t.mv2 > scream then update_image("scream.png") skip = false
+    sleep(0.5) goto continue end
+  if t.mv2 > normal then update_image("normal.png") skip = false
+    sleep(0.3) goto continue
+  end -- pause for a moment then goto start
+  if t.mv2 < silent then if skip then goto continue end
+    update_image("silent.png") 
+    skip = true -- do not update afterwards
+  end
+end
+```
+Result:
+![gif](https://i.imgur.com/4HysoIE.gif)
+
+# Browser source interaction
+## Send mouse move 
+```lua
+repeat sleep(1)
+send_mouse_move_tbs(t.source,12,125) 
+local get_t = function() return math.random(125,140) end
+for i=12,200,6 do 
+  sleep(0.03)
+  send_mouse_move_tbs(t.source,i,get_t()) 
+end
+until false
+```
+Example gif - 2 consoles are sending mouse move events into browser sources:
+![gif](https://i.imgur.com/gI6LbRF.gif)
+Website link: <https://zennohelpers.github.io/Browser-Events-Testers/Mouse/Mouse.html?>
+
+## Send Click
+```lua
+repeat sleep(1)
+--send_mouse_move_tbs(t.source,95,80) -- 300x300 browser source
+_opts = {x=95,y=80,button_type=obs.MOUSE_LEFT,mouse_up=false,click_count=0}
+send_mouse_click_tbs(t.source,_opts) 
+-- here might be delay which specifies how long mouse is pressed
+_opts.mouse_up,_opts.click_count = true,2
+send_mouse_click_tbs(t.source,_opts) 
+until false
+```
+## Wheel does not work
+```lua
+repeat sleep(1)
+--send_mouse_move_tbs(t.source,95,80) -- 300x300 browser source
+_opts = {x=95,y=80,y_delta=3}
+send_mouse_wheel_tbs(t.source,_opts) 
+until false
+```
+## Keyboard interaction
+```lua
+-- Send tab
+send_hotkey_tbs1(t.source,"OBS_KEY_TAB",false)
+send_hotkey_tbs1(t.source,"OBS_KEY_TAB",true)
+
+-- Send tab with shift modifier
+send_hotkey_tbs1(t.source,"OBS_KEY_TAB",false,{shift=true})
+send_hotkey_tbs1(t.source,"OBS_KEY_TAB",true,{shift=true})
+
+send_hotkey_tbs1(t.source,"OBS_KEY_RETURN",false)
+send_hotkey_tbs1(t.source,"OBS_KEY_RETURN",true)
+
+
+-- char_to_obskey (ASCII only)
+send_hotkey_tbs1(t.source,char_to_obskey('j'),false,{shift=true})
+send_hotkey_tbs1(t.source,char_to_obskey('j'),true,{shift=true})
+-- or use
+send_hotkey_tbs1(t.source,c2o('j'),false)
+send_hotkey_tbs1(t.source,c2o('j'),true)
+-- might work with unicode input
+send_hotkey_tbs2(t.source,'q'false)
+send_hotkey_tbs2(t.source,'й',false)
 ```
 
 # Contribute
 Contributions are welcome!
+# Roadmap 
+- Implement `obs.timer_add` as loop executor
+- Inject custom shader/effect and custom rendering for filter and for source
+- Hook keyboard, hook mouse position for winapi and x11 using cdefs
+- Add predefined templates with examples and multiple text areas to take code from
+- Python bidirectional communication via `obs_data_json` structures
 
 # License
 <a href="https://www.gnu.org/licenses/agpl-3.0.en.html">
