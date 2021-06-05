@@ -6,20 +6,21 @@ utilising built-in embedded LuaJIT interpreter, filter UI and function environme
 ![img](https://i.imgur.com/10IrnOu.png)
 
 # Features 
-- Attach `Console` to **any** source in real-time.
-- **Auto run** code when OBS starts, **load from file**, **Hot reload** expressions.
+- Attach `Console` to **any** source in real-time
+- **Auto run** code when OBS starts, **load from file**, **Hot reload** expressions
 - Hotkeys support for each `Console` instance.
 - Integration with 3-rd party plugins and scripts via `obs_data_json_settings` e.g:
-  - [move transition](https://github.com/exeldro/obs-move-transition) - latest versions include `audio move filter` which monitors source volume level.
+  - [move transition](https://github.com/exeldro/obs-move-transition) - latest versions include `audio move filter` which monitors source volume level
   - [websocket](https://github.com/Palakis/obs-websocket) - control obs through WebSockets
-- Less boilerplate: an environment provided with already defined namespace.
-  - `t.source` - access source reference unique to each `Console` instance.
-  - `t.pressed` - access hotkey state.
-  - `sleep(seconds)` - command to pause execution.
-  - `t.tasks` - asynchronous event loop.
-  - `obslua` - accessed via `obs` and `obsffi` - native linked library.
-  - Share GLOBAL state between `Console` instances via `gn` - global namespace.
-  - `t.<setting_name>` - various settings
+- Less boilerplate: an environment provided with already defined namespace
+  - `source` - access source reference unique to each `Console` instance
+  - `t.pressed` - access hotkey state
+  - `sleep(seconds)` - command to pause execution
+  - `t.tasks` - asynchronous event loop
+  - `obsffi` - accessed via `obsffi` - native linked library
+  - View **all** settings for source, and for filter in that source 
+  - Send, pause, resume, switch `Console` instances via GLOBAL multi actions pipes
+  - Read and write private data, execute Python from Lua, and Lua from Python
 - Crossplatform, works offline.
 - View output of `print` in `Script Log`.
 ```diff
@@ -27,7 +28,6 @@ utilising built-in embedded LuaJIT interpreter, filter UI and function environme
 ```
 
 # Installation 
-- One time setup 
 - Download source code, unpack/unzip.
 - Add `console.lua` to OBS Studio via Tools > Scripts > "+" button
 ---
@@ -37,7 +37,7 @@ utilising built-in embedded LuaJIT interpreter, filter UI and function environme
 - Open `Script Log` to view `Console` output.
 - Type some code into the text area.
 - Press `Execute!`.
-- Sample code: `print(obs.obs_frontend_get_current_scene_collection())`
+- Sample code: `print(obs_frontend_get_current_scene_collection())`
 
 # REPL usage
 
@@ -45,7 +45,7 @@ Each Console instance has it's own namespace `t`,
 you can access source which Console is attached to.
 You can do this by writing this: 
 ```lua
-print(obs.obs_source_get_name(t.source)) 
+print(obs_source_get_name(source)) 
 ```
 Note: use of `local`, if you decide to not to use it, variable will become global and all Console
 instances can access it. So if you want to save some state particular to Console
@@ -70,15 +70,14 @@ when OBS starts.
 To load from file you need first select which one to load from properties,
 see "Settings for internal use", then paste this template into text area:
 ```lua
-local _ENV = _G
-_ENV.t = __t
-local f = loadfile(t.p1,nil,"t",_ENV)
+local chunk = nil;
+local f = loadfile(t.p1, chunk , "t", _ENV)
 success, result = pcall(f)
 if not success then print(result) end
 ```
 # Hotkeys usage
 There are 2 types of hotkeys:
- - First,can be found in settings with prefixed `0;` - it will execute code in text area
+ - First, can be found in settings with prefixed `0;` - it will execute code in text area
  - Second, prefixed with `1;`- it will mutate `t.pressed` state
 
 # Examples
@@ -87,9 +86,9 @@ High frequency blinking source:
 ```lua
 while true do 
 sleep(0.03)
-obs.obs_source_set_enabled(t.source,true) 
+obs_source_set_enabled(source, true) 
 sleep(0.03)
-obs.obs_source_set_enabled(t.source,false) 
+obs_source_set_enabled(source, false) 
 end
 ```
 
@@ -97,16 +96,16 @@ Print source name while holding hotkey:
 ```lua
 repeat
 sleep(0.1)
-if t.pressed then print_source_name(t.source) end 
+if t.pressed then print_source_name(source) end 
 until false 
 ```
 
 Hot reload with delay:
 ```lua
-print('restarted') -- expression print_source_name(t.source)
+print('restarted') -- expression print_source_name(source)
 local delay = 0.5
 while true do
-local f=load('local t= __t;' .. t.hotreload)
+local f=load(CODE_STORAGE .. t.hotreload)
 success, result = pcall(f)
 if not success then print(result) end
 sleep(delay)
@@ -115,37 +114,27 @@ end
 Shake a text source and update its text based on location from scene (using code from [wiki](https://github.com/obsproject/obs-studio/wiki/Scripting-Tutorial-Source-Shake))
 Paste into `Console` or load from file this code:
 ```lua
-function get_sceneitem_from_source_name_in_current_scene(name)
-  local result_sceneitem = nil
-  local current_scene_as_source = obs.obs_frontend_get_current_scene()
-  if current_scene_as_source then
-    local current_scene = obs.obs_scene_from_source(current_scene_as_source)
-    result_sceneitem = obs.obs_scene_find_source_recursive(current_scene, name)
-    obs.obs_source_release(current_scene_as_source)
-  end
-  return result_sceneitem
-end
-local source_name = obs.obs_source_get_name(t.source)
-local sceneitem = get_sceneitem_from_source_name_in_current_scene(source_name)
-local amplitude , shaken_sceneitem_angle , frequency = 10,0,2
-local pos = obs.vec2()
+local source_name = obs_source_get_name(source)
+local sceneitem = get_scene_sceneitem("current_scene_name", return_source_name(source))
+local amplitude , shaken_sceneitem_angle , frequency = 10, 0, 2
+local pos = vec2()
 
-local function update_text(source,text)
-  local settings = obs.obs_data_create()
-  obs.obs_data_set_string(settings, "text", text)
-  obs.obs_source_update(source, settings)
-  obs.obs_data_release(settings)
+local function update_text(source, text)
+  local settings = obs_data_create()
+  obs_data_set_string(settings, "text", text)
+  obs_source_update(source, settings)
+  obs_data_release(settings)
 end
 local function get_position(opts)
   return "pos x: " .. opts.x .. " y: " .. opts.y
 end
 repeat 
-  sleep(0) -- sometimes obs freezes if sceneitem is dragged
+  sleep(0) -- sometimes obs freezes if sceneitem is double clicked
   local angle = shaken_sceneitem_angle + amplitude*math.sin(os.clock()*frequency*2*math.pi)
-  obs.obs_sceneitem_set_rot(sceneitem, angle)
-  obs.obs_sceneitem_get_pos(sceneitem,pos)
+  obs_sceneitem_set_rot(sceneitem, angle)
+  obs_sceneitem_get_pos(sceneitem, pos)
   local result = get_position { x = pos.x, y = pos.y }
-  update_text(t.source,result)
+  update_text(source, result)
 until false
 ```
 
@@ -154,18 +143,18 @@ Print a source name every second while also print current filters attached to so
 ```lua
 function print_filters()
   repeat
-  local filters_list = obs.obs_source_enum_filters(t.source)
-  for _,fs in pairs(filters_list) do
+  local filters_list = obs_source_enum_filters(source)
+  for _, fs in pairs(filters_list) do
     print_source_name(fs)
   end
-  obs.source_list_release(result)
+  source_list_release(result)
   sleep(math.random())
   until false
 end
 
 t.tasks[1] = run(print_filters)
 function shutdown_all()
- for task,_coro in pairs(t.tasks) do 
+ for task, _coro in pairs(t.tasks) do 
    t.tasks[task] = nil
  end
 end
@@ -177,7 +166,7 @@ end)
 
 repeat 
 sleep(1)
-print_source_name(t.source)
+print_source_name(source)
 until false
 ```
 Using [move-transition plugin](https://obsproject.com/forum/resources/move-transition.913/) with its move-audio filter, redirect to `t.mv2`, then show value of `t.mv2` in `Script Log`
@@ -192,7 +181,7 @@ until false
 Attach volmeter to source with sound(same as above, but without plugin):
 
 ```lua
-volume_level(return_source_name(t.source))
+volume_level(return_source_name(source))
 repeat
 sleep(1)
 print(LVL)
@@ -209,7 +198,7 @@ trigger_from_hotkey_callback(description)
 
 Send hotkey combination to OBS:
 ```lua
-send_hotkey('OBS_KEY_2',{shift=true})
+send_hotkey('OBS_KEY_2', {shift=true})
 ```
 
 Hook state of right and left mouse buttons:
@@ -224,25 +213,25 @@ until false
 
 Access sceneitem from scene:
 ```lua
-local sceneitem = get_scene_sceneitem("Scene 2",sname(t.source))
+local sceneitem = get_scene_sceneitem("Scene 2", sname(source))
 repeat 
 sleep(0.01)
 if sceneitem then
-  obs.obs_sceneitem_set_rot(sceneitem, math.sin(math.random() * 100))
+  obs_sceneitem_set_rot(sceneitem, math.sin(math.random() * 100))
   end
 until false
 ```
 Route audio move value filter from obs-move-transition to change console settings
 Attach console to image source, add images to directory with `console.lua`
-In audio move set `Input Peak Sample`,select `Move value[0,100] 1` base value `1`, factor `100`
+In audio move set `Input Peak Sample`, select `Move value[0, 100] 1` base value `1`, factor `100`
 ```lua
 function update_image(state)
-  local settings = obs.obs_data_create()
-  obs.obs_data_set_string(settings, "file", script_path() .. state)
-  obs.obs_source_update(t.source, settings)
-  obs.obs_data_release(settings)
+  local settings = obs_data_create()
+  obs_data_set_string(settings, "file", script_path() .. state)
+  obs_source_update(source, settings)
+  obs_data_release(settings)
 end
-local skip,scream,normal,silent = false,30,20,20
+local skip, scream, normal, silent = false, 30, 20, 20
 while true do ::continue::
   sleep(0.03)
   if t.mv2 > scream then update_image("scream.png") skip = false
@@ -263,11 +252,11 @@ Result:
 ## Send mouse move 
 ```lua
 repeat sleep(1)
-send_mouse_move_tbs(t.source,12,125) 
-local get_t = function() return math.random(125,140) end
-for i=12,200,6 do 
+send_mouse_move_tbs(source, 12, 125) 
+local get_t = function() return math.random(125, 140) end
+for i=12, 200, 6 do 
   sleep(0.03)
-  send_mouse_move_tbs(t.source,i,get_t()) 
+  send_mouse_move_tbs(source, i, get_t()) 
 end
 until false
 ```
@@ -278,59 +267,103 @@ Website link: <https://zennohelpers.github.io/Browser-Events-Testers/Mouse/Mouse
 ## Send Click
 ```lua
 repeat sleep(1)
---send_mouse_move_tbs(t.source,95,80) -- 300x300 browser source
-_opts = {x=95,y=80,button_type=obs.MOUSE_LEFT,mouse_up=false,click_count=0}
-send_mouse_click_tbs(t.source,_opts) 
+--send_mouse_move_tbs(source, 95, 80) -- 300x300 browser source
+_opts = {x=95, y=80, button_type=MOUSE_LEFT, mouse_up=false, click_count=0}
+send_mouse_click_tbs(source, _opts) 
 -- here might be delay which specifies how long mouse is pressed
-_opts.mouse_up,_opts.click_count = true,2
-send_mouse_click_tbs(t.source,_opts) 
+_opts.mouse_up, _opts.click_count = true, 2
+send_mouse_click_tbs(source, _opts) 
 until false
 ```
 ## Wheel does not work
 ```lua
 repeat sleep(1)
---send_mouse_move_tbs(t.source,95,80) -- 300x300 browser source
-_opts = {x=95,y=80,y_delta=3}
-send_mouse_wheel_tbs(t.source,_opts) 
+--send_mouse_move_tbs(source, 95, 80) -- 300x300 browser source
+_opts = {x=95, y=80, y_delta=3}
+send_mouse_wheel_tbs(source, _opts) 
 until false
 ```
 ## Keyboard interaction
 ```lua
 -- Send tab
-send_hotkey_tbs1(t.source,"OBS_KEY_TAB",false)
-send_hotkey_tbs1(t.source,"OBS_KEY_TAB",true)
+send_hotkey_tbs1(source, "OBS_KEY_TAB", false)
+send_hotkey_tbs1(source, "OBS_KEY_TAB", true)
 
 -- Send tab with shift modifier
-send_hotkey_tbs1(t.source,"OBS_KEY_TAB",false,{shift=true})
-send_hotkey_tbs1(t.source,"OBS_KEY_TAB",true,{shift=true})
+send_hotkey_tbs1(source, "OBS_KEY_TAB", false, {shift=true})
+send_hotkey_tbs1(source, "OBS_KEY_TAB", true, {shift=true})
 
-send_hotkey_tbs1(t.source,"OBS_KEY_RETURN",false)
-send_hotkey_tbs1(t.source,"OBS_KEY_RETURN",true)
+send_hotkey_tbs1(source, "OBS_KEY_RETURN", false)
+send_hotkey_tbs1(source, "OBS_KEY_RETURN", true)
 
 
 -- char_to_obskey (ASCII only)
-send_hotkey_tbs1(t.source,char_to_obskey('j'),false,{shift=true})
-send_hotkey_tbs1(t.source,char_to_obskey('j'),true,{shift=true})
+send_hotkey_tbs1(source, char_to_obskey('j'), false, {shift=true})
+send_hotkey_tbs1(source, char_to_obskey('j'), true, {shift=true})
 -- or use
-send_hotkey_tbs1(t.source,c2o('j'),false)
-send_hotkey_tbs1(t.source,c2o('j'),true)
+send_hotkey_tbs1(source, c2o('j'), false)
+send_hotkey_tbs1(source, c2o('j'), true)
 -- might work with unicode input
-send_hotkey_tbs2(t.source,'q'false)
-send_hotkey_tbs2(t.source,'й',false)
+send_hotkey_tbs2(source, 'q', false)
+send_hotkey_tbs2(source, 'й', false)
 ```
+
+## Execute python(must load helper script)
+```lua
+exec_py(
+[=[def print_hello():
+   print('hello world')
+   a = [ x for x in range(10) ][0]
+   return a
+print_hello()
+]=])
+```
+## React on source signals
+```lua
+register_on_show(function()
+print('on show')
+sleep(3)
+print('on show exit')
+ end)
+```
+## Run multiactions
+`Console` instance with this entry in first and second text area.
+```lua
+okay("pipe1")
+print('exposing pipe 1')
+```
+Actual code
+```lua
+ print(os.time()) print('test') ; sleep (3.5 ) ; print(os.time())
+; print('done'); print_source_name(source) ; sleep(2) print(3) print(os.time())
+```
+Another `Console` instance with same code in second text area
+```lua
+okay("pipe2")
+print('exposing pipe 2')
+```
+Main `Console` instance, has this code, it will start `pipe1` then after sec `pipe2`
+```
+offer('pipe1')
+sleep(1)
+offer('pipe2')
+```
+`okay` - exposes actions
+`offer` - starts actions
+`stall` - pause
+`forward` - continue
+`switch` - pause/continue
 
 # Contribute
 Contributions are welcome!
-# Roadmap 
-- Implement `obs.timer_add` as loop executor
+# On the Roadmap 
 - Inject custom shader/effect and custom rendering for filter and for source
 - Hook keyboard, hook mouse position for winapi and x11 using cdefs
 - Add predefined templates with examples and multiple text areas to take code from
-- Python bidirectional communication via `obs_data_json` structures
 
 # License
 <a href="https://www.gnu.org/licenses/agpl-3.0.en.html">
 <img src="https://www.gnu.org/graphics/agplv3-with-text-162x68.png" align="right" />
 </a>
 
-The **obs-libre-macros** is free software: you can redistribute it and/or modify it under the terms of the GNU Affero General Public License as published by the Free Software Foundation, either version 3 of the License, or (at your option) any later version. That means that if users interacting with it remotely through a network then: If you **not** modified it, then you can direct them [here](https://github.com/upgradeQ/obs-libre-macros), if you **modified** it, you simply have to publish your modifications. The easiest way to do this is to have a public Github repository of your fork or create a PR upstream. Otherwise, you will be in violation of the license. The relevant part of the license is under section 13 of the AGPLv3.  
+The **obs-libre-macros** is free software: you can redistribute it and/or modify it under the terms of the GNU Affero General Public License as published by the Free Software Foundation, either version 3 of the License, or (at your option) any later version. That means that if users interacting with it remotely through a network they are entitled to source code, so: If it is **not** modified, then you can direct them [here](https://github.com/upgradeQ/obs-libre-macros), if you had **modified** it, you simply have to publish your modifications. The easiest way to do this is to have a public Github repository of your fork or create a PR upstream. Otherwise, you will be in violation of the license. The relevant part of the license is under section 13 of the AGPLv3.  
