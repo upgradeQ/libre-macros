@@ -17,7 +17,7 @@ You should have received a copy of the GNU Affero General Public License
 along with this program.  If not, see <https://www.gnu.org/licenses/>.
 ]]
 print(copyleft)
-obs_libre_macros_version = "2.0.0"
+obs_libre_macros_version = "2.1.0"
 
 function script_description()
   return copyleft:sub(1, 163) .. 'Version: ' .. obs_libre_macros_version ..
@@ -93,6 +93,7 @@ _OFFER = 111;function offer(pipe_name) SUB[pipe_name] = _OFFER end
 _STALL = 222;function stall(pipe_name) SUB[pipe_name] = _STALL end
 _FORWARD = 333;function forward(pipe_name) SUB[pipe_name] = _FORWARD end
 _SWITCH = 444;function switch(pipe_name) SUB[pipe_name] = _SWITCH end
+_RECOMPILE = 555;function recompile(pipe_name) SUB[pipe_name] = _RECOMPILE end
 
 function executor(ctx, code, loc, name) -- args defined automatically  as local
   local _ENV = _G
@@ -144,6 +145,8 @@ function SourceDef:create(source)
   instance.hotkeys = {}
   instance.hk = {}
   instance.pressed = false
+  instance.pressed2 = false
+  instance.pressed3 = false
   instance.created_hotkeys = false
 
   instance.button_dispatch = false
@@ -230,6 +233,9 @@ function SourceDef:_event_loop(seconds)
       SUB[name] = 999
     elseif num_code == _SWITCH and self.pipe_name == name then
       self.is_action_paused = not self.is_action_paused
+      SUB[name] = 999
+    elseif num_code == _RECOMPILE and self.pipe_name == name then
+      executor(self, self.action_code, "exec_action_code", "actions entry recompiled")
       SUB[name] = 999
     end
   end
@@ -332,20 +338,34 @@ function SourceDef:_reg_htk(settings)
     self.hotkeys["1;" .. source_name .. ";" .. filter_name] = function(pressed)
       self.pressed = pressed
     end
+    self.hotkeys["2;" .. source_name .. ";" .. filter_name] = function(pressed)
+      self.pressed2 = pressed
+    end
+    self.hotkeys["3;" .. source_name .. ";" .. filter_name] = function(pressed)
+      self.pressed3 = pressed
+    end
 
     for k, v in pairs(self.hotkeys) do
       self.hk[k] = OBS_INVALID_HOTKEY_ID
     end
 
+    function reroute_hotkey_state(k)
+      self.hk[k] = obs_hotkey_register_frontend(k, k, function(pressed)
+        if pressed then
+          self.hotkeys[k](true)
+        else
+          self.hotkeys[k](false)
+        end
+      end)
+    end
+
     for k, v in pairs(self.hotkeys) do
       if k:sub(1, 1) == "1" then -- starts with 1 symbol
-        self.hk[k] = obs_hotkey_register_frontend(k, k, function(pressed)
-          if pressed then
-            self.hotkeys[k](true)
-          else
-            self.hotkeys[k](false)
-          end
-        end)
+        reroute_hotkey_state(k)
+      elseif k:sub(1, 1) == "2" then 
+        reroute_hotkey_state(k)
+      elseif k:sub(1, 1) == "3" then 
+        reroute_hotkey_state(k)
       else
         self.hk[k] = obs_hotkey_register_frontend(k, k, function(pressed)
           if pressed then
@@ -455,6 +475,34 @@ as_custom_source.output_flags = bit.bor(OBS_SOURCE_VIDEO, OBS_SOURCE_CUSTOM_DRAW
 
 obs_register_source(as_custom_source)
 
+as_gap_source = {}
+function as_gap_source:create(source) 
+  local instance = {}
+  as_gap_source.update(instance, self) -- self = settings and this shows it on screen
+  return instance
+end
+function as_gap_source:get_name() return "Gap source" end
+function as_gap_source:update(settings) 
+  self.height = obs_data_get_double(settings, "_height")
+  self.width = obs_data_get_double(settings, "_width")
+end
+function as_gap_source:get_properties()
+  local props = obs_properties_create()
+  obs_properties_add_int_slider(props, "_width", "Width ", 1, 9999, 1)
+  obs_properties_add_int_slider(props, "_height", "Height ", 1, 9999, 1)
+  return props
+end
+function as_gap_source:load(settings)
+  self.height = obs_data_get_double(settings, "_height")
+  self.width = obs_data_get_double(settings, "_width")
+end
+function as_gap_source:get_height() return self.height end
+function as_gap_source:get_width() return self.width end
+as_gap_source.id = "_gap_source"
+as_gap_source.type = OBS_SOURCE_TYPE_SOURCE
+as_gap_source.output_flags = bit.bor(OBS_SOURCE_VIDEO, OBS_SOURCE_CUSTOM_DRAW)
+obs_register_source(as_gap_source)
+
 --~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~wwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwww
 -- id - obs keyboard id , c - character , cs - character with shift pressed
 qwerty_minimal_keyboard_layout = {
@@ -558,6 +606,38 @@ function print_settings2(source, filter_name)
     end
   end
   source_list_release(result)
+end
+
+
+function set_settings2(source, filter_name, opts)
+  local result = obs_source_enum_filters(source)
+  local settings = obs_data_create()
+  for _, f in pairs(result) do
+    if return_source_name(f) == filter_name then
+      _G[("obs_data_set_%s"):format(opts._type)](settings, opts._field, opts._value)
+      obs_source_update(f, settings)
+      obs_data_release(settings)
+    end
+  end
+  source_list_release(result)
+end
+
+function set_settings3(source, filter_name, json_string)
+  local result = obs_source_enum_filters(source)
+  local settings = obs_data_create_from_json(json_string)
+  for _, f in pairs(result) do
+    if return_source_name(f) == filter_name then
+      obs_source_update(f, settings)
+      obs_data_release(settings)
+    end
+  end
+  source_list_release(result)
+end
+
+function set_settings4(source, json_string)
+  local settings = obs_data_create_from_json(json_string)
+  obs_source_update(f, settings)
+  obs_data_release(settings)
 end
 
 LMB, RMB, MOUSE_HOOKED = false, false, false
@@ -703,60 +783,6 @@ function trigger_from_hotkey_callback(description)
   end
 end
 
-ffi.cdef[[
-typedef struct obs_source obs_source_t;
-obs_source_t *obs_get_source_by_name(const char *name);
-void obs_source_release(obs_source_t *source);
-
-enum obs_fader_type {
-  OBS_FADER_CUBIC,
-  OBS_FADER_IEC,
-  OBS_FADER_LOG
-};
-
-typedef struct obs_volmeter obs_volmeter_t;
-
-bool obs_volmeter_attach_source(obs_volmeter_t *volmeter,
-               obs_source_t *source);
-
-int MAX_AUDIO_CHANNELS;
-
-obs_volmeter_t *obs_volmeter_create(enum obs_fader_type type);
-
-typedef void (*obs_volmeter_updated_t)(
-  void *param, const float magnitude[MAX_AUDIO_CHANNELS],
-  const float peak[MAX_AUDIO_CHANNELS],
-  const float input_peak[MAX_AUDIO_CHANNELS]);
-
-void obs_volmeter_add_callback(obs_volmeter_t *volmeter,
-              obs_volmeter_updated_t callback,
-              void *param);
-
-void obs_volmeter_set_peak_meter_type(obs_volmeter_t *volmeter,
-              enum obs_peak_meter_type peak_meter_type);
-]]
-
-LVL, NOISE, LOCK = "?", 0, false
-function callback_meter(data, mag, peak, input)
-  LVL = 'Volume lvl is :' .. tostring(tonumber(peak[0]))
-  NOISE = tonumber(peak[0])
-end
-
-
-jit.off(callback_meter)
-
-function volume_level(source_name)
-  if LOCK then return error("cannot attach to more than 1 source") end
-  local source = obsffi.obs_get_source_by_name(source_name)
-  local volmeter = obsffi.obs_volmeter_create(obsffi.OBS_FADER_LOG)
-  -- https://github.com/WarmUpTill/SceneSwitcher/blob/214821b69f5ade803a4919dc9386f6351583faca/src/switch-audio.cpp#L194-L207
-  local cb = ffi.cast("obs_volmeter_updated_t", callback_meter)
-  obsffi.obs_volmeter_add_callback(volmeter, cb, nil)
-  obsffi.obs_volmeter_attach_source(volmeter, source)
-  obsffi.obs_source_release(source)
-  LOCK = true
-end
-
 function read_private_data(data_type, field)
   local s = obs_get_private_data()
   local result = _G[("obs_data_get_%s"):format(data_type)](s, field)
@@ -813,7 +839,36 @@ function get_code(address)
   return proceed, string_, handshake
 end
 --~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~wwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwww
---
+
+ffi.cdef[[
+typedef struct obs_source obs_source_t;
+obs_source_t *obs_get_source_by_name(const char *name);
+void obs_source_release(obs_source_t *source);
+
+enum obs_fader_type {
+  OBS_FADER_CUBIC,
+  OBS_FADER_IEC,
+  OBS_FADER_LOG
+};
+typedef struct obs_volmeter obs_volmeter_t;
+bool obs_volmeter_attach_source(obs_volmeter_t *volmeter,
+               obs_source_t *source);
+
+int MAX_AUDIO_CHANNELS;
+
+obs_volmeter_t *obs_volmeter_create(enum obs_fader_type type);
+
+typedef void (*obs_volmeter_updated_t)(
+  void *param, const float magnitude[MAX_AUDIO_CHANNELS],
+  const float peak[MAX_AUDIO_CHANNELS],
+  const float input_peak[MAX_AUDIO_CHANNELS]);
+
+void obs_volmeter_add_callback(obs_volmeter_t *volmeter,
+              obs_volmeter_updated_t callback,
+              void *param);
+]]
+
+
 CODE_STORAGE = [===[
 local t = __t; 
 local source = t.source
@@ -864,6 +919,134 @@ local function register_on_deactivate(delayed_callback)
 end
 
 local function okay(name) t.pipe_name = name end
+
+local function callback_meter(data, mag, peak, input)
+  t.noise = tonumber(peak[0])
+end
+
+jit.off(callback_meter)
+
+local function volume_level(source_name)
+  if t.volmeter_lock then return error("cannot attach more than one") end
+  local source = obsffi.obs_get_source_by_name(source_name)
+  local volmeter = obsffi.obs_volmeter_create(obsffi.OBS_FADER_LOG)
+  -- https://github.com/WarmUpTill/SceneSwitcher/blob/214821b69f5ade803a4919dc9386f6351583faca/src/switch-audio.cpp#L194-L207
+  local cb = ffi.cast("obs_volmeter_updated_t", callback_meter);cb:set(callback_meter)
+  obsffi.obs_volmeter_add_callback(volmeter, cb, nil)
+  obsffi.obs_volmeter_attach_source(volmeter, source)
+  obsffi.obs_source_release(source)
+  t.volmeter_lock = true
+end
+
+local function get_gap_source(opts)
+  local gap, settings;
+  local w = opts.w 
+  local h = opts.h 
+  local n = opts.n
+  settings = obs_data_create()
+  obs_data_set_double(settings, "_width", w)
+  obs_data_set_double(settings, "_height", h)
+  gap = obs_source_create("_gap_source", n, settings, nil)
+  return gap, settings
+end
+
+local function __c(source, settings)
+  -- clear current context
+  obs_source_release(source)
+  obs_data_release(settings)
+end
+
+
+local function add_outer_gap(size)
+  size = size or 15
+  if not t.__scene then  -- otherwise its crashes
+    t.__scene = obs_scene_from_source(source)
+  end
+  local width = obs_source_get_base_width(source)
+  local height = obs_source_get_base_height(source)
+
+  local rgap, rsettings = get_gap_source({w=size, h=height, n="_right_gap"});
+  local lgap, lsettings = get_gap_source({w=size, h=height, n="_left_gap"});
+  local ugap, usettings = get_gap_source({w=width, h=size, n="_up_gap"});
+  local dgap, dsettings = get_gap_source({w=width, h=size, n="_down_gap"});
+  local rpos, lpos, upos, dpos = vec2(), vec2(), vec2(), vec2()
+  local r = obs_scene_add(t.__scene, rgap); __c(rgap, rsettings)
+  local l = obs_scene_add(t.__scene, lgap); __c(lgap, lsettings)
+  local u = obs_scene_add(t.__scene, ugap); __c(ugap, usettings)
+  local d = obs_scene_add(t.__scene, dgap); __c(dgap, dsettings)
+  lpos.x, lpos.y = 0, 0; obs_sceneitem_set_pos(l, lpos)
+  rpos.x, rpos.y = width - size, 0; obs_sceneitem_set_pos(r, rpos)
+  upos.x, upos.y = 0, 0; obs_sceneitem_set_pos(u, upos)
+  dpos.x, dpos.y = 0, height - size; obs_sceneitem_set_pos(d, dpos)
+end
+
+local function delete_all_gaps()
+  if not t.__scene then  -- otherwise its crashes
+    t.__scene = obs_scene_from_source(source)
+  end
+  local items = obs_scene_enum_items(t.__scene)
+  for _, i in pairs(items) do 
+    if obs_source_get_unversioned_id(obs_sceneitem_get_source(i)) == '_gap_source' then
+      obs_sceneitem_remove(i)
+    end
+  end
+  sceneitem_list_release(items)
+end
+
+local function _update_gap_base(gs, opts)
+  local settings = obs_source_get_settings(gs)
+  obs_data_set_double(settings, "_width", opts.w)
+  obs_data_set_double(settings, "_height", opts.h)
+  obs_source_update(gs, settings)
+  obs_data_release(settings)
+end
+
+local function _set_gap(gs, gi, size, width, height)
+  local pos = vec2()
+  local name = obs_source_get_name(gs)
+
+  if name == '_right_gap' then
+    _update_gap_base(gs, {w = size, h = height})
+    pos.x, pos.y = width - size, 0; obs_sceneitem_set_pos(gi, pos)
+  elseif name =='_left_gap' then
+    _update_gap_base(gs, {w = size, h = height})
+    pos.x, pos.y = 0, 0; obs_sceneitem_set_pos(gi, pos)
+  elseif name =='_up_gap' then
+    _update_gap_base(gs, {w = width, h = size})
+    pos.x, pos.y = 0, 0; obs_sceneitem_set_pos(gi, pos)
+  elseif name =='_down_gap' then
+    _update_gap_base(gs, {w = width, h = size})
+    pos.x, pos.y = 0, height - size; obs_sceneitem_set_pos(gi, pos)
+  end
+end
+
+local function resize_outer_gaps(size)
+  size = size or 15
+  if not t.__scene then  -- otherwise its crashes
+    t.__scene = obs_scene_from_source(source)
+  end
+  local items = obs_scene_enum_items(t.__scene)
+  local width = obs_source_get_base_width(source)
+  local height = obs_source_get_base_height(source)
+  for _, i in pairs(items) do 
+    local s = obs_sceneitem_get_source(i)
+    if obs_source_get_unversioned_id(s) == '_gap_source' then
+      _set_gap(s, i, size, width, height)
+    end
+  end
+  sceneitem_list_release(items)
+end
+
+local function add_gap(opts)
+  -- add_gap {x=300,y=500, width = 100, height = 100}
+  if not t.__scene then  -- otherwise its crashes
+    t.__scene = obs_scene_from_source(source)
+  end
+  local gap,settings = get_gap_source({w=opts.width, h=opts.height, n="_unnamed_gap"});
+  local item = obs_scene_add(t.__scene, gap); __c(gap, settings)
+  local pos = vec2(); pos.x, pos.y = opts.x, opts.y
+  obs_sceneitem_set_pos(item, pos)
+end
 
 -- leave empty new line with 2 spaces
   

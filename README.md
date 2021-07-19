@@ -1,9 +1,6 @@
 # Description 
 **obs-libre-macros** is an Extension for OBS Studio built on top of its scripting facilities,
 utilising built-in embedded LuaJIT interpreter, filter UI and function environment from Lua 5.2
-# Screenshot
-
-![img](https://i.imgur.com/10IrnOu.png)
 
 # Features 
 - Attach `Console` to **any** source in real-time
@@ -18,11 +15,11 @@ utilising built-in embedded LuaJIT interpreter, filter UI and function environme
   - `sleep(seconds)` - command to pause execution
   - `t.tasks` - asynchronous event loop
   - `obsffi` - accessed via `obsffi` - native linked library
-  - View **all** settings for source, and for filter in that source 
-  - Send, pause, resume, switch `Console` instances via GLOBAL multi actions pipes
+  - View and change **all** settings for source, and for filter in that source 
+  - Send, pause, resume, switch, recompile `Console` instances via GLOBAL multi actions pipes
   - Read and write private data, execute Python from Lua, and Lua from Python
+  - Create hollow gaps 
 - Crossplatform, works offline.
-- View output of `print` in `Script Log`.
 ```diff
 +Browser source keyboard and mouse interaction+
 ```
@@ -38,6 +35,7 @@ utilising built-in embedded LuaJIT interpreter, filter UI and function environme
 - Type some code into the text area.
 - Press `Execute!`.
 - Sample code: `print(obs_frontend_get_current_scene_collection())`
+- [Examples & Cheatsheet (python)](https://github.com/upgradeQ/OBS-Studio-Python-Scripting-Cheatsheet-obspython-Examples-of-API)
 
 # REPL usage
 
@@ -78,7 +76,7 @@ if not success then print(result) end
 # Hotkeys usage
 There are 2 types of hotkeys:
  - First, can be found in settings with prefixed `0;` - it will execute code in text area
- - Second, prefixed with `1;`- it will mutate `t.pressed` state
+ - Second, prefixed with `1;`, `2;`, `3;` - it will mutate `t.pressed`, `t.pressed2`, `t.pressed3` states
 
 # Examples
 High frequency blinking source:  
@@ -170,7 +168,6 @@ print_source_name(source)
 until false
 ```
 Using [move-transition plugin](https://obsproject.com/forum/resources/move-transition.913/) with its move-audio filter, redirect to `t.mv2`, then show value of `t.mv2` in `Script Log`
-- [x] Headphones on
 ```lua
 repeat 
 sleep(0.3)
@@ -178,14 +175,13 @@ print(t.mv2)
 until false
 ```
 
-Attach volmeter to source with sound(same as above, but without plugin):
+Attach volmeter to source with sound.Note: this is unstable, and tends to crash.
 
 ```lua
 volume_level(return_source_name(source))
 repeat
 sleep(1)
-print(LVL)
-print(NOISE)
+print(t.noise)
 until false
 ```
 
@@ -275,7 +271,7 @@ _opts.mouse_up, _opts.click_count = true, 2
 send_mouse_click_tbs(source, _opts) 
 until false
 ```
-## Wheel does not work
+## Wheel does not work with default CSS
 ```lua
 repeat sleep(1)
 --send_mouse_move_tbs(source, 95, 80) -- 300x300 browser source
@@ -327,43 +323,79 @@ print('on show exit')
  end)
 ```
 ## Run multiactions
-`Console` instance with this entry in first and second text area.
+### Example
+`Console` instance with this entries in first and second text area.
 ```lua
 okay("pipe1")
 print('exposing pipe 1')
 ```
 Actual code
 ```lua
- print(os.time()) print('test') ; sleep (3.5 ) ; print(os.time())
-; print('done'); print_source_name(source) ; sleep(2) print(3) print(os.time())
+print(os.time()) print('start') ; sleep (2.5 ) ; print(os.time())
+print_source_name(source) ; sleep(2) print('done'); print(os.time())
 ```
-Another `Console` instance with same code in second text area
+Another `Console` instance with same code fisrt text area but different in second
 ```lua
 okay("pipe2")
 print('exposing pipe 2')
 ```
-Main `Console` instance, has this code, it will start `pipe1` then after sec `pipe2`
+Main `Console` instance. This will start `pipe1` then after sec `pipe2`
 ```
 offer('pipe1')
 sleep(1)
 offer('pipe2')
 ```
-`okay` - exposes actions
-`offer` - starts actions
-`stall` - pause
-`forward` - continue
-`switch` - pause/continue
+- `okay` - exposes actions
+- `offer` - starts actions
+- `stall` - pause
+- `forward` - continue
+- `switch` - pause/continue
+- `recompile` - restarts actions
+
+# Gaps sources
+***Only usable through attaching via filter to scene (not groups)***
+
+- Add gap:
+```lua
+add_gap {x=300,y=500, width = 100, height = 100}
+```
+- Add outer gaps - `add_outer_gap(100)`
+- Resize outer gaps - `resize_outer_gaps(30)`
+- Delete all gaps on scene - `delete_all_gaps()`
+
+# View and set settings
+- `print_settings(source)` - shows all settings
+- `print_settings2(source, filter_name)` - shows all settings for a filter on that source
+- `set_settings2(source, filter_name, opts)` - sets one settings
+- `set_settings3(source, filter_name, json_string)` - sets one settings
+- `set_settings4(source,  json_string)` - sets settings for source
+
+Examples: 
+
+```lua
+set_settings2(source, "Color Correction", {_type ="double", _field= "gamma", _value= 0})
+```
+
+```lua
+local my_json_string = [==[
+{"brightness":0.0,"color_add":0,"color_multiply":16777215,
+"contrast":0.0,"gamma":0.0,"hue_shift":0.0,"opacity":1.0,"saturation":0.0}
+]==]
+set_settings3(source, "Color Correction", my_json_string)
+```
 
 # Contribute
 Contributions are welcome!
+
 # On the Roadmap 
-- Inject custom shader/effect and custom rendering for filter and for source
+- Inject custom shader/effect and custom rendering for filter and for source. There is pure Lua custom shader loader [here](https://github.com/ps0ares/CustomShaders).
 - Hook keyboard, hook mouse position for winapi and x11 using cdefs
-- Add predefined templates with examples and multiple text areas to take code from
+- Add predefined templates with examples
+- Add multiple text areas which execute every _n_ seconds and has switch to turn on/off
 
 # License
 <a href="https://www.gnu.org/licenses/agpl-3.0.en.html">
 <img src="https://www.gnu.org/graphics/agplv3-with-text-162x68.png" align="right" />
 </a>
 
-The **obs-libre-macros** is free software: you can redistribute it and/or modify it under the terms of the GNU Affero General Public License as published by the Free Software Foundation, either version 3 of the License, or (at your option) any later version. That means that if users interacting with it remotely through a network they are entitled to source code, so: If it is **not** modified, then you can direct them [here](https://github.com/upgradeQ/obs-libre-macros), if you had **modified** it, you simply have to publish your modifications. The easiest way to do this is to have a public Github repository of your fork or create a PR upstream. Otherwise, you will be in violation of the license. The relevant part of the license is under section 13 of the AGPLv3.  
+The **obs-libre-macros** is free software: you can redistribute it and/or modify it under the terms of the GNU Affero General Public License as published by the Free Software Foundation, either version 3 of the License, or (at your option) any later version. That means that IF users interacting with it remotely(through a network) - they are entitled to source code. And if it is **not** modified, then you can direct them [here](https://github.com/upgradeQ/obs-libre-macros), but if you had **modified** it, you simply have to publish your modifications. The easiest way to do this is to have a public Github repository of your fork or create a PR upstream. Otherwise, you will be in violation of the license. The relevant part of the license is under section 13 of the AGPLv3.  
