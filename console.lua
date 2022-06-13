@@ -1,7 +1,7 @@
 copyleft = [[
 obs-libre-macros - scripting and macros hotkeys in OBS Studio for Humans
 Contact/URL https://www.github.com/upgradeQ/obs-libre-macros
-Copyright (C) 2021 upgradeQ
+Copyright (C) 2021-2022 upgradeQ
 
 This program is free software: you can redistribute it and/or modify
 it under the terms of the GNU Affero General Public License as
@@ -17,14 +17,126 @@ You should have received a copy of the GNU Affero General Public License
 along with this program.  If not, see <https://www.gnu.org/licenses/>.
 ]]
 print(copyleft)
-obs_libre_macros_version = "2.1.0"
+obs_libre_macros_versions = "OBS 27.2.4 64bit Windows 11 extension version 3.0.0"
 
-function script_description()
-  return copyleft:sub(1, 163) .. 'Version: ' .. obs_libre_macros_version ..
-  '\nReleased under GNU Affero General Public License, AGPLv3+'
+--~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~wwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwww
+-- https://stackoverflow.com/a/8891620 by kikito
+local i18n = { locales = {} }
+
+local current_locale = 'en' -- the default language
+
+function i18n.set_locale(new_locale)
+  current_locale = new_locale
+  assert(i18n.locales[current_locale], ("The locale %q was unknown"):format(new_locale))
 end
 
-function open_package(ns)
+local function translate(id)
+  local result = i18n.locales[current_locale][id]
+  assert(result, ("The id %q was not found in the current locale (%q)"):format(id, current_locale))
+  return result
+end
+
+i18n.translate = translate
+
+setmetatable(i18n, {__call = function(_, ...) return translate(...) end})
+
+i18n.locales.en = {
+  select_lang = 'Select language',
+  execute = 'Execute!',
+  view_output = 'View output',
+  auto_run = 'Auto run',
+  s_mv1 = 'Move value variable[0, 1] 0.01',
+  s_mv2 = 'Move value variable[0, 100] 1',
+  hotreload = 'Hot reload expression',
+  p1 = 'Path 1',
+  p2 = 'Path 2',
+  p_group_name = 'Settings for interval use, text area above is for global multi action pipes',
+  width = 'Width',
+  height = 'Height',
+  g2_restart = 'Restart required to enable/disable this sources',
+  ['Console (Timer)'] = 'Console (Timer)',
+  ['Console sceneitem custom'] = 'Console sceneitem custom',
+  ['Gap source'] = 'Gap source',
+  ['Console'] = 'Console',
+  interval = 'Timer interval per second',
+}
+
+i18n.locales.ru = {
+  select_lang = 'Выбрать язык',
+  execute = 'Выполнить!',
+  view_output = 'Посмотреть результат',
+  auto_run = 'Запускать автоматически',
+  s_mv1 = 'Перменная движения[0, 1] 0.01',
+  s_mv2 = 'Перменная движения[0, 100] 1',
+  hotreload = 'Выполнять выражение автоматически',
+  p1 = 'Путь 1',
+  p2 = 'Путь 2',
+  p_group_name = 'Внутренние настройки, поле текста выше для глобальных мульти последовательностей',
+  width = 'Ширина',
+  height = 'Высота',
+  g2_restart = 'Требуется перезапуск что вкл/выкл эти источники',
+  ['Console (Timer)'] = 'Консоль (Таймер)',
+  ['Console sceneitem custom'] = 'Консоль специальный предмет сцены',
+  ['Gap source'] = 'Пустой источник',
+  ['Console'] = 'Консоль',
+  interval = 'Интервал таймера раз в секунду',
+}
+--~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~wwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwww
+-- id - obs keyboard id , c - character , cs - character with shift pressed
+qwerty_minimal_keyboard_layout = {
+  {id="OBS_KEY_BACKSPACE", c="backspace", cs="backspace"},
+  {id="OBS_KEY_RETURN", c="enter", cs="enter"},
+  {id="OBS_KEY_TAB", c="tab", cs="tab"},
+  {id="OBS_KEY_ASCIITILDE", c="`", cs="~"},
+  {id ="OBS_KEY_COMMA", c=", ", cs="<"},
+  {id ="OBS_KEY_PLUS", c="=", cs="+"},
+  {id ="OBS_KEY_MINUS", c="-", cs="_"},
+  {id ="OBS_KEY_BRACKETLEFT", c="[", cs="{"},
+  {id ="OBS_KEY_BRACKETRIGHT", c="]", cs="}"},
+  {id ="OBS_KEY_PERIOD", c=".", cs=">"},
+  {id ="OBS_KEY_APOSTROPHE", c="'", cs='"'},
+  {id ="OBS_KEY_SEMICOLON", c=";", cs=":"},
+  {id ="OBS_KEY_SLASH", c="/", cs="?"},
+  {id ="OBS_KEY_SPACE", c=" ", cs=" "},
+  {id ="OBS_KEY_0", c="0", cs=")"},
+  {id ="OBS_KEY_1", c="1", cs="!"},
+  {id ="OBS_KEY_2", c="2", cs="@"},
+  {id ="OBS_KEY_3", c="3", cs="#"},
+  {id ="OBS_KEY_4", c="4", cs="$"},
+  {id ="OBS_KEY_5", c="5", cs="%"},
+  {id ="OBS_KEY_6", c="6", cs="^"},
+  {id ="OBS_KEY_7", c="7", cs="&"},
+  {id ="OBS_KEY_8", c="8", cs="*"},
+  {id ="OBS_KEY_9", c="9", cs="("},
+  {id ="OBS_KEY_A", c="a", cs="A"},
+  {id ="OBS_KEY_B", c="b", cs="B"},
+  {id ="OBS_KEY_C", c="c", cs="C"},
+  {id ="OBS_KEY_D", c="d", cs="D"},
+  {id ="OBS_KEY_E", c="e", cs="E"},
+  {id ="OBS_KEY_F", c="f", cs="F"},
+  {id ="OBS_KEY_G", c="g", cs="G"},
+  {id ="OBS_KEY_H", c="h", cs="H"},
+  {id ="OBS_KEY_I", c="i", cs="I"},
+  {id ="OBS_KEY_J", c="j", cs="J"},
+  {id ="OBS_KEY_K", c="k", cs="K"},
+  {id ="OBS_KEY_L", c="l", cs="L"},
+  {id ="OBS_KEY_M", c="m", cs="M"},
+  {id ="OBS_KEY_N", c="n", cs="N"},
+  {id ="OBS_KEY_O", c="o", cs="O"},
+  {id ="OBS_KEY_P", c="p", cs="P"},
+  {id ="OBS_KEY_Q", c="q", cs="Q"},
+  {id ="OBS_KEY_R", c="r", cs="R"},
+  {id ="OBS_KEY_S", c="s", cs="S"},
+  {id ="OBS_KEY_T", c="t", cs="T"},
+  {id ="OBS_KEY_U", c="u", cs="U"},
+  {id ="OBS_KEY_V", c="v", cs="V"},
+  {id ="OBS_KEY_W", c="w", cs="W"},
+  {id ="OBS_KEY_X", c="x", cs="X"},
+  {id ="OBS_KEY_Y", c="y", cs="Y"},
+  {id ="OBS_KEY_Z", c="z", cs="Z"},
+}
+--~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~wwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwww
+local function open_package(ns)
   for n, v in pairs(ns) do _G[n] = v end
 end
 
@@ -33,7 +145,7 @@ ffi = require "ffi" -- for native libs and C code access
 jit = require "jit" -- for C thread callback behavior change
 bit = require "bit" -- binary logic
 
-function try_load_library(alias, name)
+local function try_load_library(alias, name)
   if ffi.os == "OSX" then name = name .. ".0.dylib" end
   ok, _G[alias] = pcall(ffi.load, name)
   if not ok then 
@@ -45,9 +157,7 @@ try_load_library("obsffi", "obs")
 --try_load_library("frontendC", "frontend-api")
 --try_load_library("openglC", "opengl")
 --try_load_library("scriptingC", "scripting")
-
 --~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~wwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwww
-
 local Timer = {}
 function Timer:new(o)
   o = o or {}
@@ -80,13 +190,10 @@ function sleep(s)
   local action = Timer:new{duration=s}
   action:launch()
 end
-
 --~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~wwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwww
 -- function script_tick(dt) end -- external loop, can be used for messaging/signalling
-
 run = coroutine.create
 init = function() return run(function() coroutine.yield() end) end
-gn = {}
 SUB = {} -- {{"pipe_name": num_code}, ...}
 
 _OFFER = 111;function offer(pipe_name) SUB[pipe_name] = _OFFER end
@@ -95,20 +202,21 @@ _FORWARD = 333;function forward(pipe_name) SUB[pipe_name] = _FORWARD end
 _SWITCH = 444;function switch(pipe_name) SUB[pipe_name] = _SWITCH end
 _RECOMPILE = 555;function recompile(pipe_name) SUB[pipe_name] = _RECOMPILE end
 
-function executor(ctx, code, loc, name) -- args defined automatically  as local
-  local _ENV = _G
-  loc = loc or "exec"
+local function executor(ctx, code, loc, name) -- args defined automatically  as local
+  local custom_env52  = {}
+  setmetatable(custom_env52, {__index = _G})
+  custom_env52.source = obs_filter_get_parent(ctx.filter)
+  loc = loc or "exec" -- special locaition address if python sript is present
   name = name or "obs repl"
-  _ENV["__t"] = ctx
-  code = code or _ENV.__t.code
-  _ENV.__t.source = obs_filter_get_parent(ctx.filter)
-  _ENV.pr1 = function() print_source_name(_ENV.t.source) end
-  local exec = assert(load(CODE_STORAGE .. code, name, "t"))
+  custom_env52.t = ctx
+  code = code or custom_env52.t.code
+  for k,v in pairs(utils) do custom_env52[k] = setfenv(v,custom_env52) end
+  local exec = assert(load(CODE_STORAGE_INIT .. code, name, "t", custom_env52))
   -- executor submits code to event loop, which will execute it with .resume
   ctx[loc] = run(exec)
 end
 
-function skip_tick_render(ctx)
+local function skip_tick_render(ctx)
   local target = obs_filter_get_target(ctx.filter)
   local width, height;
   if target == nil then width = 0; height = 0; else
@@ -118,12 +226,10 @@ function skip_tick_render(ctx)
   ctx.width, ctx.height = width , height
 end
 
-function viewer()
+local function viewer()
   error(">Script Log")
 end
-
 --~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~wwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwww
-
 local SourceDef = {}
 
 function SourceDef:new(o)
@@ -134,7 +240,9 @@ function SourceDef:new(o)
 end
 
 function SourceDef:_set_timer_loop() 
-  local interval, ms = 1/60 , 16 -- change if higher fps
+  local value = SourceDef.__interval
+  local ms = (1/value) * 1000; ms = ms + (2^52 + 2^51) - (2^52 + 2^51) 
+  local interval = 1/value 
   timer_add(function() SourceDef._event_loop(self, interval) end, ms)
   self.loop_executor_timer = true
 end
@@ -254,23 +362,24 @@ end
 function SourceDef:get_properties()
   local props = obs_properties_create()
   obs_properties_add_text(props, "_text", "", OBS_TEXT_MULTILINE)
-  obs_properties_add_button(props, "button1", "Execute!", function()
+  obs_properties_add_button(props, "button1", i18n"execute", function()
     self.button_dispatch = true
     executor(self)
   end)
-  local s = "+   -  -  -  -  -  -  -  -  -  -  [ View output ] -  -  -  -  -  -  -  -  -  -    +"
+  local s = "+   -  -  -  -  -  -  -  -  -  -  [ " .. i18n"view_output"
+  .. " ] -  -  -  -  -  -  -  -  -  -    +"
   obs_properties_add_button(props, "button2", s, viewer)
-  obs_properties_add_bool(props, "_autorun", "Auto run")
+  obs_properties_add_bool(props, "_autorun", i18n"auto_run")
   obs_properties_add_text(props, "_action", "", OBS_TEXT_MULTILINE)
 
   local group_props = obs_properties_create()
   local _mv1, _mv2, _hotreload, _p1, _p2;
-  _mv1 = obs_properties_add_float_slider(group_props, "_mv1", "Move value[0, 1] 0.01", 0, 1, 0.01)
-  _mv2 = obs_properties_add_int_slider(group_props, "_mv2", "Move value[0, 100] 1", 0, 100, 1)
-  _hotreload = obs_properties_add_text(group_props, "_hotreload", "Hot reload expression", OBS_TEXT_DEFAULT)
-  _p1 = obs_properties_add_path(group_props, "_p1", "Path 1", OBS_PATH_FILE, "*.lua", script_path())
-  _p2 = obs_properties_add_path(group_props, "_p2", "Path 2", OBS_PATH_FILE, "*.lua", script_path())
-  obs_properties_add_group(props, "_group", "Settings for internal use", OBS_GROUP_NORMAL, group_props)
+  _mv1 = obs_properties_add_float_slider(group_props, "_mv1", i18n"s_mv1", 0, 1, 0.01)
+  _mv2 = obs_properties_add_int_slider(group_props, "_mv2", i18n"s_mv2", 0, 100, 1)
+  _hotreload = obs_properties_add_text(group_props, "_hotreload", i18n"hotreload", OBS_TEXT_DEFAULT)
+  _p1 = obs_properties_add_path(group_props, "_p1", i18n"p1", OBS_PATH_FILE, "*.lua", script_path())
+  _p2 = obs_properties_add_path(group_props, "_p2", i18n"p2", OBS_PATH_FILE, "*.lua", script_path())
+  obs_properties_add_group(props, "_group", i18n"p_group_name", OBS_GROUP_NORMAL, group_props)
 
   return props
 end
@@ -305,7 +414,7 @@ function SourceDef:get_width() return self.width end
 
 function SourceDef:get_height() return self.height end
 
-function SourceDef:get_name() return "Console" end
+function SourceDef:get_name() return i18n"Console" end
 
 function SourceDef:load(settings) SourceDef._reg_htk(self, settings) end
 
@@ -383,32 +492,13 @@ function SourceDef:_reg_htk(settings)
   end
 end
 
---~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~wwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwww
-
-as_video_filter = SourceDef:new()
-as_video_filter.id = "v_console_source"
-as_video_filter.type = OBS_SOURCE_TYPE_FILTER
-as_video_filter.output_flags = bit.bor(OBS_SOURCE_VIDEO)
-obs_register_source(as_video_filter)
-
-as_audio_filter = SourceDef:new()
-as_audio_filter.id = "a_console_source"
-as_audio_filter.type = OBS_SOURCE_TYPE_FILTER
-as_audio_filter.output_flags = bit.bor(OBS_SOURCE_AUDIO)
-obs_register_source(as_audio_filter)
-
-as_audio_filter_timer, as_video_filter_timer = as_audio_filter, as_video_filter
-as_video_filter_timer.id = "v_console_source_timer"
-function as_video_filter_timer:get_name() return "Console (timer)" end 
-obs_register_source(as_video_filter_timer)
-
-as_audio_filter_timer.id = "a_console_source_timer"
-function as_audio_filter_timer:get_name() return "Console (timer)" end 
-obs_register_source(as_audio_filter_timer)
 
 --~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~wwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwww
-as_custom_source = as_video_filter
-
+as_custom_source = SourceDef:new({
+  id = "s_console_source",
+  type = OBS_SOURCE_TYPE_SOURCE,
+  output_flags = bit.bor(OBS_SOURCE_VIDEO, OBS_SOURCE_CUSTOM_DRAW, OBS_SOURCE_AUDIO),
+})
 function as_custom_source:get_name() return "AGPLv3+ obs-libre-macros by upgradeQ" end
 function as_custom_source:video_render(settings) end
 function as_custom_source:get_height() return 200 end
@@ -469,11 +559,6 @@ function as_custom_source:_reg_htk(settings)
     end
   end
 end
-as_custom_source.id = "s_console_source"
-as_custom_source.type = OBS_SOURCE_TYPE_SOURCE
-as_custom_source.output_flags = bit.bor(OBS_SOURCE_VIDEO, OBS_SOURCE_CUSTOM_DRAW, OBS_SOURCE_AUDIO)
-
-obs_register_source(as_custom_source)
 
 as_gap_source = {}
 function as_gap_source:create(source) 
@@ -481,15 +566,15 @@ function as_gap_source:create(source)
   as_gap_source.update(instance, self) -- self = settings and this shows it on screen
   return instance
 end
-function as_gap_source:get_name() return "Gap source" end
+function as_gap_source:get_name() return i18n"Gap source" end
 function as_gap_source:update(settings) 
   self.height = obs_data_get_double(settings, "_height")
   self.width = obs_data_get_double(settings, "_width")
 end
 function as_gap_source:get_properties()
   local props = obs_properties_create()
-  obs_properties_add_int_slider(props, "_width", "Width ", 1, 9999, 1)
-  obs_properties_add_int_slider(props, "_height", "Height ", 1, 9999, 1)
+  obs_properties_add_int_slider(props, "_width", i18n"width", 1, 9999, 1)
+  obs_properties_add_int_slider(props, "_height", i18n"height", 1, 9999, 1)
   return props
 end
 function as_gap_source:load(settings)
@@ -501,64 +586,65 @@ function as_gap_source:get_width() return self.width end
 as_gap_source.id = "_gap_source"
 as_gap_source.type = OBS_SOURCE_TYPE_SOURCE
 as_gap_source.output_flags = bit.bor(OBS_SOURCE_VIDEO, OBS_SOURCE_CUSTOM_DRAW)
-obs_register_source(as_gap_source)
-
 --~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~wwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwww
--- id - obs keyboard id , c - character , cs - character with shift pressed
-qwerty_minimal_keyboard_layout = {
-  {id="OBS_KEY_BACKSPACE", c="backspace", cs="backspace"},
-  {id="OBS_KEY_RETURN", c="enter", cs="enter"},
-  {id="OBS_KEY_TAB", c="tab", cs="tab"},
-  {id="OBS_KEY_ASCIITILDE", c="`", cs="~"},
-  {id ="OBS_KEY_COMMA", c=", ", cs="<"},
-  {id ="OBS_KEY_PLUS", c="=", cs="+"},
-  {id ="OBS_KEY_MINUS", c="-", cs="_"},
-  {id ="OBS_KEY_BRACKETLEFT", c="[", cs="{"},
-  {id ="OBS_KEY_BRACKETRIGHT", c="]", cs="}"},
-  {id ="OBS_KEY_PERIOD", c=".", cs=">"},
-  {id ="OBS_KEY_APOSTROPHE", c="'", cs='"'},
-  {id ="OBS_KEY_SEMICOLON", c=";", cs=":"},
-  {id ="OBS_KEY_SLASH", c="/", cs="?"},
-  {id ="OBS_KEY_SPACE", c=" ", cs=" "},
-  {id ="OBS_KEY_0", c="0", cs=")"},
-  {id ="OBS_KEY_1", c="1", cs="!"},
-  {id ="OBS_KEY_2", c="2", cs="@"},
-  {id ="OBS_KEY_3", c="3", cs="#"},
-  {id ="OBS_KEY_4", c="4", cs="$"},
-  {id ="OBS_KEY_5", c="5", cs="%"},
-  {id ="OBS_KEY_6", c="6", cs="^"},
-  {id ="OBS_KEY_7", c="7", cs="&"},
-  {id ="OBS_KEY_8", c="8", cs="*"},
-  {id ="OBS_KEY_9", c="9", cs="("},
-  {id ="OBS_KEY_A", c="a", cs="A"},
-  {id ="OBS_KEY_B", c="b", cs="B"},
-  {id ="OBS_KEY_C", c="c", cs="C"},
-  {id ="OBS_KEY_D", c="d", cs="D"},
-  {id ="OBS_KEY_E", c="e", cs="E"},
-  {id ="OBS_KEY_F", c="f", cs="F"},
-  {id ="OBS_KEY_G", c="g", cs="G"},
-  {id ="OBS_KEY_H", c="h", cs="H"},
-  {id ="OBS_KEY_I", c="i", cs="I"},
-  {id ="OBS_KEY_J", c="j", cs="J"},
-  {id ="OBS_KEY_K", c="k", cs="K"},
-  {id ="OBS_KEY_L", c="l", cs="L"},
-  {id ="OBS_KEY_M", c="m", cs="M"},
-  {id ="OBS_KEY_N", c="n", cs="N"},
-  {id ="OBS_KEY_O", c="o", cs="O"},
-  {id ="OBS_KEY_P", c="p", cs="P"},
-  {id ="OBS_KEY_Q", c="q", cs="Q"},
-  {id ="OBS_KEY_R", c="r", cs="R"},
-  {id ="OBS_KEY_S", c="s", cs="S"},
-  {id ="OBS_KEY_T", c="t", cs="T"},
-  {id ="OBS_KEY_U", c="u", cs="U"},
-  {id ="OBS_KEY_V", c="v", cs="V"},
-  {id ="OBS_KEY_W", c="w", cs="W"},
-  {id ="OBS_KEY_X", c="x", cs="X"},
-  {id ="OBS_KEY_Y", c="y", cs="Y"},
-  {id ="OBS_KEY_Z", c="z", cs="Z"},
-}
+function script_description()
+  return copyleft:sub(1, 168) .. '\nTested on: ' .. obs_libre_macros_versions ..
+  '\nReleased under GNU Affero General Public License, AGPLv3+'
+end
 
+function script_properties()
+  local props = obs_properties_create()
+  local props_group1 = obs_properties_create()
+  obs_properties_add_bool(props_group1, "_flag_custom", i18n"Console sceneitem custom")
+  obs_properties_add_bool(props_group1, "_flag_gap", i18n"Gap source")
+  obs_properties_add_bool(props_group1, "_flag_console_timer", i18n"Console (Timer)")
+  obs_properties_add_float(props_group1, "_interval",i18n"interval",0,999,0.001)
+  obs_properties_add_group(props, "group1", i18n"g2_restart", OBS_GROUP_NORMAL, props_group1)
+  local _langs = obs_properties_add_list(props, "_lang", i18n"select_lang", OBS_COMBO_TYPE_LIST, OBS_COMBO_FORMAT_STRING)
+
+  for k, v in pairs {en="English", ru="Русский"} do
+    obs_property_list_add_string(_langs, v, k)
+  end
+
+  return props
+end
+
+function script_defaults(settings)
+  obs_data_set_default_string(settings, "_lang", "en")
+  obs_data_set_default_double(settings, "_interval",60)
+end
+
+function script_load(settings)
+  i18n.set_locale(obs_data_get_string(settings, "_lang")) -- must load first
+  local as_video_filter = SourceDef:new({id = "v_console_source", type = OBS_SOURCE_TYPE_FILTER, output_flags = bit.bor(OBS_SOURCE_VIDEO),})
+  obs_register_source(as_video_filter)
+
+  local as_audio_filter = SourceDef:new({ id = "a_console_source", type = OBS_SOURCE_TYPE_FILTER, output_flags = bit.bor(OBS_SOURCE_AUDIO),})
+  obs_register_source(as_audio_filter)
+
+
+  if obs_data_get_bool(settings, "_flag_gap") then
+    obs_register_source(as_gap_source) 
+  end
+  if obs_data_get_bool(settings, "_flag_custom") then
+    obs_register_source(as_custom_source) 
+  end
+  if obs_data_get_bool(settings, "_flag_console_timer") then
+    local interval = obs_data_get_double(settings, "_interval")
+    local as_audio_filter_timer, as_video_filter_timer = as_audio_filter, as_video_filter
+    as_video_filter_timer.id = "v_console_source_timer"
+    SourceDef.__interval = interval
+    function as_video_filter_timer:get_name() return i18n"Console (Timer)" end 
+
+    as_audio_filter_timer.id = "a_console_source_timer"
+    SourceDef.__interval = interval
+    function as_audio_filter_timer:get_name() return i18n"Console (Timer)" end 
+    obs_register_source(as_video_filter_timer)
+    obs_register_source(as_audio_filter_timer)
+  end
+end
 --~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~wwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwww
+-- global general purpose functions -  preloaded
 
 function sname(source)
   return obs_source_get_name(source)
@@ -813,16 +899,6 @@ function exec_py(string_, address)
   obs_data_release(s)
 end
 
-----------------usage
--- exec_py(
--- [=[def print_hello():
-     -- print('hello world')
-     -- a = [ x for x in range(10) ][0]
-     -- return a
--- print_hello()
--- ]=])
----------------------
-
 function get_code(address)
   local handshake;
   if not address then 
@@ -838,46 +914,80 @@ function get_code(address)
   obs_data_release(s)
   return proceed, string_, handshake
 end
---~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~wwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwww
-
+-- https://stackoverflow.com/a/61269226 by Egor-Skriptunoff
+if ffi.os == 'Windows' then 
 ffi.cdef[[
-typedef struct obs_source obs_source_t;
-obs_source_t *obs_get_source_by_name(const char *name);
-void obs_source_release(obs_source_t *source);
-
-enum obs_fader_type {
-  OBS_FADER_CUBIC,
-  OBS_FADER_IEC,
-  OBS_FADER_LOG
-};
-typedef struct obs_volmeter obs_volmeter_t;
-bool obs_volmeter_attach_source(obs_volmeter_t *volmeter,
-               obs_source_t *source);
-
-int MAX_AUDIO_CHANNELS;
-
-obs_volmeter_t *obs_volmeter_create(enum obs_fader_type type);
-
-typedef void (*obs_volmeter_updated_t)(
-  void *param, const float magnitude[MAX_AUDIO_CHANNELS],
-  const float peak[MAX_AUDIO_CHANNELS],
-  const float input_peak[MAX_AUDIO_CHANNELS]);
-
-void obs_volmeter_add_callback(obs_volmeter_t *volmeter,
-              obs_volmeter_updated_t callback,
-              void *param);
+typedef struct _STARTUPINFOA {
+  uint32_t  cb;
+  void *    lpReserved;
+  void *    lpDesktop;
+  void *    lpTitle;
+  uint32_t  dwX;
+  uint32_t  dwY;
+  uint32_t  dwXSize;
+  uint32_t  dwYSize;
+  uint32_t  dwXCountChars;
+  uint32_t  dwYCountChars;
+  uint32_t  dwFillAttribute;
+  uint32_t  dwFlags;
+  uint16_t  wShowWindow;
+  uint16_t  cbReserved2;
+  void *    lpReserved2;
+  void **   hStdInput;
+  void **   hStdOutput;
+  void **   hStdError;
+} STARTUPINFOA, *LPSTARTUPINFOA;
+typedef struct _PROCESS_INFORMATION {
+  void **  hProcess;
+  void **  hThread;
+  uint32_t dwProcessId;
+  uint32_t dwThreadId;
+} PROCESS_INFORMATION, *LPPROCESS_INFORMATION;
+uint32_t CreateProcessA(
+  void *,
+  const char * commandLine,
+  void *,
+  void *,
+  uint32_t,
+  uint32_t,
+  void *,
+  const char * currentDirectory,
+  LPSTARTUPINFOA,
+  LPPROCESS_INFORMATION
+);
+uint32_t CloseHandle(void **);
 ]]
 
-
-CODE_STORAGE = [===[
-local t = __t; 
-local source = t.source
+function execute(command_line, current_directory)
+   local si = ffi.new"STARTUPINFOA"
+   si.cb = ffi.sizeof(si)
+   si.lpReserved = nil;
+   si.lpDesktop = nil;
+   si.lpTitle = nil;
+   si.dwFlags = 1; -- STARTF_USESHOWWINDOW
+   si.wShowWindow = 0; -- SW_HIDE 
+   si.cbReserved2 = 0; -- must be zero
+   si.lpReserved2 = nil
+   local pi = ffi.new"PROCESS_INFORMATION"
+   local ok = ffi.C.CreateProcessA(nil, command_line, nil, nil, 0, 0, nil, current_directory, si, pi) ~= 0
+   if ok then
+      ffi.C.CloseHandle(pi.hProcess)
+      ffi.C.CloseHandle(pi.hThread)
+   end
+   return ok  -- true/false
+end
+end
 
 function print_source_name(source)
   print(obs_source_get_name(source))
 end
 
-local function execute_from_private_registry(address, tickrate)
+-- setfenv functions with nonlocal variable t(instance)
+utils = {}
+
+function utils.okay(name) t.pipe_name = name end
+
+function utils.execute_from_private_registry(address, tickrate)
   tickrate = tickrate or 1/60
   while true do
     proceed, code, handshake = get_code(address)
@@ -889,56 +999,35 @@ local function execute_from_private_registry(address, tickrate)
   end
 end
 
-local function accept(address, tickrate)
+function utils.accept(address, tickrate)
   execute_from_private_registry(address, tickrate)
 end
 
-
-local function register_on_show(delayed_callback)
+function utils.register_on_show(delayed_callback)
   t.on_show_do = function()
     t.on_show_task = run(function() delayed_callback() end) 
   end
 end
 
-local function register_on_hide(delayed_callback)
+function utils.register_on_hide(delayed_callback)
   t.on_hide_do = function()
     t.on_hide_task = run(function() delayed_callback() end) 
   end
 end
 
-local function register_on_activate(delayed_callback)
+function utils.register_on_activate(delayed_callback)
   t.on_activate_do = function()
     t.on_activate_task = run(function() delayed_callback() end) 
   end
 end
 
-local function register_on_deactivate(delayed_callback)
+function utils.register_on_deactivate(delayed_callback)
   t.on_deactivate_do = function()
     t.on_deactivate_task = run(function() delayed_callback() end) 
   end
 end
 
-local function okay(name) t.pipe_name = name end
-
-local function callback_meter(data, mag, peak, input)
-  t.noise = tonumber(peak[0])
-end
-
-jit.off(callback_meter)
-
-local function volume_level(source_name)
-  if t.volmeter_lock then return error("cannot attach more than one") end
-  local source = obsffi.obs_get_source_by_name(source_name)
-  local volmeter = obsffi.obs_volmeter_create(obsffi.OBS_FADER_LOG)
-  -- https://github.com/WarmUpTill/SceneSwitcher/blob/214821b69f5ade803a4919dc9386f6351583faca/src/switch-audio.cpp#L194-L207
-  local cb = ffi.cast("obs_volmeter_updated_t", callback_meter);cb:set(callback_meter)
-  obsffi.obs_volmeter_add_callback(volmeter, cb, nil)
-  obsffi.obs_volmeter_attach_source(volmeter, source)
-  obsffi.obs_source_release(source)
-  t.volmeter_lock = true
-end
-
-local function get_gap_source(opts)
+function utils.get_gap_source(opts)
   local gap, settings;
   local w = opts.w 
   local h = opts.h 
@@ -950,14 +1039,13 @@ local function get_gap_source(opts)
   return gap, settings
 end
 
-local function __c(source, settings)
+function utils.__c(source, settings)
   -- clear current context
   obs_source_release(source)
   obs_data_release(settings)
 end
 
-
-local function add_outer_gap(size)
+function utils.add_outer_gap(size)
   size = size or 15
   if not t.__scene then  -- otherwise its crashes
     t.__scene = obs_scene_from_source(source)
@@ -980,7 +1068,7 @@ local function add_outer_gap(size)
   dpos.x, dpos.y = 0, height - size; obs_sceneitem_set_pos(d, dpos)
 end
 
-local function delete_all_gaps()
+function utils.delete_all_gaps()
   if not t.__scene then  -- otherwise its crashes
     t.__scene = obs_scene_from_source(source)
   end
@@ -993,7 +1081,7 @@ local function delete_all_gaps()
   sceneitem_list_release(items)
 end
 
-local function _update_gap_base(gs, opts)
+function utils._update_gap_base(gs, opts)
   local settings = obs_source_get_settings(gs)
   obs_data_set_double(settings, "_width", opts.w)
   obs_data_set_double(settings, "_height", opts.h)
@@ -1001,7 +1089,7 @@ local function _update_gap_base(gs, opts)
   obs_data_release(settings)
 end
 
-local function _set_gap(gs, gi, size, width, height)
+function utils._set_gap(gs, gi, size, width, height)
   local pos = vec2()
   local name = obs_source_get_name(gs)
 
@@ -1020,7 +1108,7 @@ local function _set_gap(gs, gi, size, width, height)
   end
 end
 
-local function resize_outer_gaps(size)
+function utils.resize_outer_gaps(size)
   size = size or 15
   if not t.__scene then  -- otherwise its crashes
     t.__scene = obs_scene_from_source(source)
@@ -1037,7 +1125,7 @@ local function resize_outer_gaps(size)
   sceneitem_list_release(items)
 end
 
-local function add_gap(opts)
+function utils.add_gap(opts)
   -- add_gap {x=300,y=500, width = 100, height = 100}
   if not t.__scene then  -- otherwise its crashes
     t.__scene = obs_scene_from_source(source)
@@ -1048,7 +1136,9 @@ local function add_gap(opts)
   obs_sceneitem_set_pos(item, pos)
 end
 
--- leave empty new line with 2 spaces
+CODE_STORAGE_INIT = [===[
+
+-- leave empty new line with 2 spaces, there might be bootstraping and initialization code here
   
 ]===]
 
