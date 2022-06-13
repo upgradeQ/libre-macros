@@ -25,7 +25,7 @@ utilising built-in embedded LuaJIT interpreter, filter UI and function environme
 ```
 
 # Installation 
-- Download [source code](/archive/master.zip), unpack/unzip.
+- Download [source code](https://github.com/upgradeQ/obs-libre-macros/archive/master.zip), unpack/unzip.
 - Add `console.lua` to OBS Studio via Tools > Scripts > "+" button
 ---
 # Usage 
