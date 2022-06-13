@@ -1,6 +1,6 @@
 # Description 
 **obs-libre-macros** is an Extension for OBS Studio built on top of its scripting facilities,
-utilising built-in embedded LuaJIT interpreter, filter UI and function environment from Lua 5.2
+utilising built-in embedded LuaJIT interpreter, filter UI and function environment from Lua 5.1
 
 # Features 
 - Attach `Console` to **any** source in real-time
@@ -9,23 +9,23 @@ utilising built-in embedded LuaJIT interpreter, filter UI and function environme
 - Integration with 3-rd party plugins and scripts via `obs_data_json_settings` e.g:
   - [move transition](https://github.com/exeldro/obs-move-transition) - latest versions include `audio move filter` which monitors source volume level
   - [websocket](https://github.com/Palakis/obs-websocket) - control obs through WebSockets
-- Less boilerplate: an environment provided with already defined namespace
+- Less boilerplate: an environment provided with already defined namespace and useful functions
   - `source` - access source reference unique to each `Console` instance
   - `t.pressed` - access hotkey state
   - `sleep(seconds)` - command to pause execution
   - `t.tasks` - asynchronous event loop
   - `obsffi` - accessed via `obsffi` - native linked library
   - View and change **all** settings for source, and for filter in that source 
-  - Send, pause, resume, switch, recompile `Console` instances via GLOBAL multi actions pipes
+  - Send, pause, resume, switch, recompile `Console` instances via GLOBAL(per OBS Studio instance) multi actions pipes
   - Read and write private data, execute Python from Lua, and Lua from Python
   - Create hollow gaps 
-- Crossplatform, works offline.
+- Crossplatform, works offline, supports two languages for UI English and Russian
 ```diff
 +Browser source keyboard and mouse interaction+
 ```
 
 # Installation 
-- Download source code, unpack/unzip.
+- Download [source code](/archive/master.zip), unpack/unzip.
 - Add `console.lua` to OBS Studio via Tools > Scripts > "+" button
 ---
 # Usage 
@@ -39,26 +39,13 @@ utilising built-in embedded LuaJIT interpreter, filter UI and function environme
 
 # REPL usage
 
-Each Console instance has it's own namespace `t`,
-you can access source which Console is attached to.
-You can do this by writing this: 
+Each Console instance has it's own namespace `t` and custom environment,
+you can access source which Console is attached to. e.g:
 ```lua
 print(obs_source_get_name(source)) 
 ```
-Note: use of `local`, if you decide to not to use it, variable will become global and all Console
-instances can access it. So if you want to save some state particular to Console
-instance you'd better write this:
-```lua
-local this_source_note = "sample text"
-t.this_source_note = this_source_note
--- or
-t.k = 'value'
-```
-Later if you want to change it you'd write:
-```lua
-t.this_source_note = "samplex text updated at"  .. os.date(" %X ")
-print(t.this_source_note)
-```
+To access global the state of script do it via `_G`, when you write x = 5,
+only that instance of `Console` will have it.
 
 # Auto run
 If you check `Auto run` then code from this console will be executed automatically 
@@ -68,8 +55,7 @@ when OBS starts.
 To load from file you need first select which one to load from properties,
 see "Settings for internal use", then paste this template into text area:
 ```lua
-local chunk = nil;
-local f = loadfile(t.p1, chunk , "t", _ENV)
+local f = loadfile(t.p1, "t",getfenv(1))
 success, result = pcall(f)
 if not success then print(result) end
 ```
@@ -103,7 +89,8 @@ Hot reload with delay:
 print('restarted') -- expression print_source_name(source)
 local delay = 0.5
 while true do
-local f=load(CODE_STORAGE .. t.hotreload)
+local f=load( t.hotreload)
+setfenv(f,getfenv(1))
 success, result = pcall(f)
 if not success then print(result) end
 sleep(delay)
@@ -113,7 +100,8 @@ Shake a text source and update its text based on location from scene (using code
 Paste into `Console` or load from file this code:
 ```lua
 local source_name = obs_source_get_name(source)
-local sceneitem = get_scene_sceneitem("current_scene_name", return_source_name(source))
+local _name = "YOUR CURRENT SCENE NAME YOU ARE ON"
+local sceneitem = get_scene_sceneitem(_name, return_source_name(source))
 local amplitude , shaken_sceneitem_angle , frequency = 10, 0, 2
 local pos = vec2()
 
@@ -136,7 +124,8 @@ repeat
 until false
 ```
 
-Print a source name every second while also print current filters attached to source in `t.tasks`, shutdown this task after 10 seconds
+Print a source name every second while also print current filters attached to
+source in `t.tasks`, shutdown this task after 10 seconds
 
 ```lua
 function print_filters()
@@ -145,7 +134,7 @@ function print_filters()
   for _, fs in pairs(filters_list) do
     print_source_name(fs)
   end
-  source_list_release(result)
+  source_list_release(filters_list)
   sleep(math.random())
   until false
 end
@@ -172,16 +161,6 @@ Using [move-transition plugin](https://obsproject.com/forum/resources/move-trans
 repeat 
 sleep(0.3)
 print(t.mv2)
-until false
-```
-
-Attach volmeter to source with sound.Note: this is unstable, and tends to crash.
-
-```lua
-volume_level(return_source_name(source))
-repeat
-sleep(1)
-print(t.noise)
 until false
 ```
 
@@ -272,6 +251,7 @@ send_mouse_click_tbs(source, _opts)
 until false
 ```
 ## Wheel does not work with default CSS
+Note: currently does not work on 27.2.4 
 ```lua
 repeat sleep(1)
 --send_mouse_move_tbs(source, 95, 80) -- 300x300 browser source
@@ -329,15 +309,20 @@ print('on show exit')
 okay("pipe1")
 print('exposing pipe 1')
 ```
-Actual code
+Actual code, write it in second text area in each instance of `Console`
 ```lua
-print(os.time()) print('start') ; sleep (2.5 ) ; print(os.time())
-print_source_name(source) ; sleep(2) print('done'); print(os.time())
+print(os.time()) print('  start 11111') ; sleep (0.5) ; print(os.time())
+print_source_name(source) ; sleep(2) print('done 11111')
 ```
-Another `Console` instance with same code fisrt text area but different in second
+Another `Console` instance with same code first text area but different in second
 ```lua
 okay("pipe2")
 print('exposing pipe 2')
+```
+And in multiaction text area add this
+```lua
+print(os.time()) print('start ss22222ssssss2ss') ; sleep (2.5 ) ; print(os.time())
+print_source_name(source) ; sleep(2) print('done 2222')
 ```
 Main `Console` instance. This will start `pipe1` then after sec `pipe2`
 ```
@@ -383,15 +368,32 @@ local my_json_string = [==[
 ]==]
 set_settings3(source, "Color Correction", my_json_string)
 ```
+# Useful functions
+Also read source to know exactly how they work in section which defines general purpose functions.
+
+`execute(command_line, current_directory)` - executes command line command without console blinking WINDOWS ONLY
+Example:
+```lua
+if execute[["C:\full\path\to\python.exe" "C:\Users\YOUR_USERNAME\path\to\program.py" ]] then
+error('done') else error('not done') end
+```
+
+`sname(source)` - returns source name as string
+
+`sceneitem = get_scene_sceneitem(scene_name, scene_item_name)`
+
 
 # Contribute
-Contributions are welcome!
+Contributions are welcome! You might take a look into source code for translation of UI to your language.
 
 # On the Roadmap 
-- Inject custom shader/effect and custom rendering for filter and for source. There is pure Lua custom shader loader [here](https://github.com/ps0ares/CustomShaders).
+- Inject custom shader/effect and custom rendering for filter and for source.
+There is pure Lua custom shader loader [here](https://github.com/ps0ares/CustomShaders).
+Add shaders to transform source in 3D and 2D programmatically 
 - Hook keyboard, hook mouse position for winapi and x11 using cdefs
 - Add predefined templates with examples
-- Add multiple text areas which execute every _n_ seconds and has switch to turn on/off
+- Apply special functionality to each type of source,e.g add special functions, redesign properties
+- Add more features and functions to browser source
 
 # License
 <a href="https://www.gnu.org/licenses/agpl-3.0.en.html">
