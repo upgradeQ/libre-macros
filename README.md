@@ -378,6 +378,8 @@ if execute[["C:\full\path\to\python.exe" "C:\Users\YOUR_USERNAME\path\to\program
 error('done') else error('not done') end
 ```
 
+`pp_execute` - works roughly same as above, based on util.h from libobs [see also](https://github.com/obsproject/obs-studio/commit/225f597379dd0af56f749374a07bea1f7beebf6e)
+
 `sname(source)` - returns source name as string
 
 `sceneitem = get_scene_sceneitem(scene_name, scene_item_name)`

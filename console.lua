@@ -17,7 +17,8 @@ You should have received a copy of the GNU Affero General Public License
 along with this program.  If not, see <https://www.gnu.org/licenses/>.
 ]]
 print(copyleft)
-obs_libre_macros_versions = "OBS 27.2.4 64bit Windows 11 extension version 3.0.0"
+_ver = "3.0.1"
+_tested = ("OBS 27.2.4 64bit Windows 11 extension version %s"):format(_ver)
 
 --~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~wwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwww
 -- https://stackoverflow.com/a/8891620 by kikito
@@ -588,7 +589,7 @@ as_gap_source.type = OBS_SOURCE_TYPE_SOURCE
 as_gap_source.output_flags = bit.bor(OBS_SOURCE_VIDEO, OBS_SOURCE_CUSTOM_DRAW)
 --~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~wwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwww
 function script_description()
-  return copyleft:sub(1, 168) .. '\nTested on: ' .. obs_libre_macros_versions ..
+  return copyleft:sub(1, 168) .. '\nTested on: ' .. _tested ..
   '\nReleased under GNU Affero General Public License, AGPLv3+'
 end
 
@@ -646,11 +647,11 @@ end
 --~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~wwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwww
 -- global general purpose functions -  preloaded
 
-function sname(source)
-  return obs_source_get_name(source)
-end
+function sname(source) return obs_source_get_name(source) end
 
 return_source_name = sname
+
+function print_source_name(source) print(obs_source_get_name(source)) end
 
 function get_scene_sceneitem(scene_name, scene_item_name)
   local sceneitem;
@@ -978,8 +979,19 @@ function execute(command_line, current_directory)
 end
 end
 
-function print_source_name(source)
-  print(obs_source_get_name(source))
+ffi.cdef[[
+struct os_process_pipe;
+typedef struct os_process_pipe os_process_pipe_t;
+os_process_pipe_t *os_process_pipe_create(const char *cmd_line, const char *type);
+size_t os_process_pipe_read(os_process_pipe_t *pp, uint8_t *data, size_t len);
+size_t os_process_pipe_read_err(os_process_pipe_t *pp, uint8_t *data, size_t len);
+size_t os_process_pipe_write(os_process_pipe_t *pp, const uint8_t *data, size_t len);
+int os_process_pipe_destroy(os_process_pipe_t *pp);
+]]
+
+function pp_execute(cmd_line)
+   pp = obsffi.os_process_pipe_create(cmd_line "r");
+   obsffi.os_process_pipe_destroy(pp)
 end
 
 -- setfenv functions with nonlocal variable t(instance)
