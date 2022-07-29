@@ -384,18 +384,23 @@ error('done') else error('not done') end
 
 `sceneitem = get_scene_sceneitem(scene_name, scene_item_name)`
 
+# Snippets
+ * `On/off sceneitem every 2.5 seconds` - source must be a scene
+ * `Loop media source between start and end via hotkey` - adds two hotkeys to set and clear loop (`1;` and `2;`)
+ * `Write internal stats to text source` - based on [`OBS-Stats-on-Stream`](https://github.com/GreenComfyTea/OBS-Stats-on-Stream)
 
 # Contribute
 Contributions are welcome! You might take a look into source code for translation of UI to your language.
 
 # On the Roadmap 
-- Inject custom shader/effect and custom rendering for filter and for source.
-There is pure Lua custom shader loader [here](https://github.com/ps0ares/CustomShaders).
-Add shaders to transform source in 3D and 2D programmatically 
-- Hook keyboard, hook mouse position for winapi and x11 using cdefs
-- Add predefined templates with examples
-- Apply special functionality to each type of source,e.g add special functions, redesign properties
-- Add more features and functions to browser source
+- Hook keyboard, hook mouse position for winapi and x11 using cdefs (using community packages)
+- Add more functions to control browser source
+- Add more snippets
+- Record source settings changes and replay it
+
+# See also 
+* [pure Lua custom shader loader ](https://github.com/ps0ares/CustomShaders)
+* Advanced scene switcher [plugin](https://github.com/WarmUpTill/SceneSwitcher)
 
 # License
 <a href="https://www.gnu.org/licenses/agpl-3.0.en.html">

@@ -17,7 +17,7 @@ You should have received a copy of the GNU Affero General Public License
 along with this program.  If not, see <https://www.gnu.org/licenses/>.
 ]]
 print(copyleft)
-_ver = "3.0.1"
+_ver = "3.1.0"
 _tested = ("OBS 27.2.4 64bit Windows 11 extension version %s"):format(_ver)
 
 --~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~wwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwww
@@ -60,6 +60,12 @@ i18n.locales.en = {
   ['Gap source'] = 'Gap source',
   ['Console'] = 'Console',
   interval = 'Timer interval per second',
+  _snippets ='Snippets',
+  _snip_select ='Select snippet',
+  _snip_confirm ='Confirm',
+  s_on_off_sceneitem = 'On/off sceneitem every 2.5 seconds',
+  s_loop_media  = 'Loop media source between start and end via hotkey',
+  s_general_stats  = 'Write internal stats to text source',
 }
 
 i18n.locales.ru = {
@@ -81,6 +87,12 @@ i18n.locales.ru = {
   ['Gap source'] = 'Пустой источник',
   ['Console'] = 'Консоль',
   interval = 'Интервал таймера раз в секунду',
+  _snippets ='Сниппеты',
+  _snip_select ='Выбрать сниппет',
+  _snip_confirm ='Подтвердить',
+  s_on_off_sceneitem = 'Вкл/выкл предмет сцены каждые 2.5 секунды',
+  s_loop_media  = 'Повтор медиа источника через сочетание клавиш',
+  s_general_stats  = 'Записать специальную статистику в текстовый источник',
 }
 --~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~wwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwww
 -- id - obs keyboard id , c - character , cs - character with shift pressed
@@ -196,6 +208,7 @@ end
 run = coroutine.create
 init = function() return run(function() coroutine.yield() end) end
 SUB = {} -- {{"pipe_name": num_code}, ...}
+gn = {}
 
 _OFFER = 111;function offer(pipe_name) SUB[pipe_name] = _OFFER end
 _STALL = 222;function stall(pipe_name) SUB[pipe_name] = _STALL end
@@ -273,11 +286,19 @@ function SourceDef:create(source)
   instance.on_activate_task = init()
   instance.on_deactivate_task = init()
 
+  instance._res_defer = {} -- { {res = some_resource, defer = some_cleanup_callback, created = id }, ...}
+
   if obs_source_get_unversioned_id(source):find("timer") then 
     SourceDef._set_timer_loop(instance)
   end
   SourceDef.update(instance, self) -- self = settings
   return instance
+end
+
+function SourceDef:destroy()
+  for k,v in pairs(self._res_defer) do
+    v.defer(v.res)
+  end
 end
 
 function SourceDef:update(settings)
@@ -289,6 +310,7 @@ function SourceDef:update(settings)
   self.hotreload = obs_data_get_string(settings, "_hotreload")
   self.p1 = obs_data_get_string(settings, "_p1")
   self.p2 = obs_data_get_string(settings, "_p2")
+  self.snippet = obs_data_get_string(settings, "_snippets_list")
 
   if not self.created_hotkeys then
     SourceDef._reg_htk(self, settings)
@@ -362,7 +384,8 @@ end
 
 function SourceDef:get_properties()
   local props = obs_properties_create()
-  obs_properties_add_text(props, "_text", "", OBS_TEXT_MULTILINE)
+  local text_area = obs_properties_add_text(props, "_text", "", OBS_TEXT_MULTILINE)
+  obs_property_text_set_monospace(text_area, true)
   obs_properties_add_button(props, "button1", i18n"execute", function()
     self.button_dispatch = true
     executor(self)
@@ -371,7 +394,25 @@ function SourceDef:get_properties()
   .. " ] -  -  -  -  -  -  -  -  -  -    +"
   obs_properties_add_button(props, "button2", s, viewer)
   obs_properties_add_bool(props, "_autorun", i18n"auto_run")
-  obs_properties_add_text(props, "_action", "", OBS_TEXT_MULTILINE)
+  local text_area2 = obs_properties_add_text(props, "_action", "", OBS_TEXT_MULTILINE)
+  obs_property_text_set_monospace(text_area2, true)
+  local snippets = obs_properties_create()
+  local mylist = obs_properties_add_list(snippets, "_snippets_list", "", OBS_COMBO_TYPE_LIST, OBS_COMBO_FORMAT_STRING)
+  for k,v in pairs(SNIPPETS) do 
+    obs_property_list_add_string(mylist,i18n(k),v)
+  end
+
+  local btn = obs_properties_add_button(snippets, "button3", i18n"_snip_select", function()
+    local s = obs_source_get_settings(self.filter)
+    if not obs_data_get_bool(s, "_confirm") then obs_data_release(s) return true end
+    obs_data_set_string(s, "_text", self.snippet)
+    obs_data_set_bool(s, "_confirm", false)
+    obs_source_update(self.filter, s)
+    obs_data_release(s)
+    return true
+  end)
+  obs_properties_add_bool(snippets, "_confirm", i18n"_snip_confirm")
+  obs_properties_add_group(props, "_groupextra", i18n"_snippets", OBS_GROUP_NORMAL, snippets)
 
   local group_props = obs_properties_create()
   local _mv1, _mv2, _hotreload, _p1, _p2;
@@ -990,12 +1031,24 @@ int os_process_pipe_destroy(os_process_pipe_t *pp);
 ]]
 
 function pp_execute(cmd_line)
-   pp = obsffi.os_process_pipe_create(cmd_line "r");
+   local pp = obsffi.os_process_pipe_create(cmd_line "r");
    obsffi.os_process_pipe_destroy(pp)
 end
 
 -- setfenv functions with nonlocal variable t(instance)
 utils = {}
+
+function utils.res_defer(item)
+  local id = tostring(item.res)
+
+  for k,v in pairs(t._res_defer) do 
+    if v.created == id then 
+      return 
+    end
+  end
+  item.created = id
+  table.insert(t._res_defer, item)
+end
 
 function utils.okay(name) t.pipe_name = name end
 
@@ -1147,6 +1200,309 @@ function utils.add_gap(opts)
   local pos = vec2(); pos.x, pos.y = opts.x, opts.y
   obs_sceneitem_set_pos(item, pos)
 end
+
+--~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~wwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwww
+SNIPPETS = {} -- { name = string value}
+SNIPPETS.s_general_stats = [===[
+
+ffi.cdef[[
+  struct video_output;
+  typedef struct video_output video_t;
+
+  struct os_cpu_usage_info;
+  typedef struct os_cpu_usage_info os_cpu_usage_info_t;
+
+  uint32_t video_output_get_skipped_frames(const video_t *video);
+  uint32_t video_output_get_total_frames(const video_t *video);
+  double video_output_get_frame_rate(const video_t *video);
+  
+  os_cpu_usage_info_t *os_cpu_usage_info_start(void);
+  double os_cpu_usage_info_query(os_cpu_usage_info_t *info);
+  void os_cpu_usage_info_destroy(os_cpu_usage_info_t *info);
+
+  video_t *obs_get_video(void);
+]]
+
+
+local s = {}
+
+s.lagged_frames = ""
+s.lagged_total_frames = ""
+s.lagged_percents = ""
+
+s.skipped_frames = ""
+s.skipped_total_frames = ""
+s.skipped_percents = ""
+
+s.dropped_frames = ""
+s.dropped_total_frames = ""
+s.dropped_percents = ""
+
+s.congestion = ""
+s.average_congestion = ""
+
+s.memory_usage = ""
+s.cpu_usage = ""
+s.cpu_cores = ""
+
+s.average_frame_time = ""
+s.fps = ""
+s.target_fps = "30"
+s.average_fps = ""
+
+s.bitrate = ""
+
+s.streaming_status = "Offline"
+s.recording_status = "Off"
+
+s.bitrate = 0
+s.last_bytes_sent = 0
+s.last_bytes_time = 0
+
+s.recording_bitrate = 0
+s.recording_last_bytes_recorded = 0
+
+s.total_ticks = 0
+s.congestion_cumulative = 0
+s.fps_cumulative = 0
+
+s.is_live = false
+
+
+function obs_stats_tick()
+  s.total_ticks = s.total_ticks + 1
+  
+  -- Get CPU usage
+  local cpu_usage = 0.0
+  s.cpu_usage = obsffi.os_cpu_usage_info_query(t.cpu_info)
+  
+  -- Get memory usage
+  local memory_usage = os_get_proc_resident_size() / (1024.0 * 1024.0)
+  
+  -- Get FPS/framerate
+  local fps = obs_get_active_fps()
+  s.fps_cumulative = s.fps_cumulative + fps
+  
+  -- Get average time to render frame
+  local average_frame_time = obs_get_average_frame_time_ns() / 1000000.0
+  
+  -- Get lagged/missed frames
+  local rendered_frames = obs_get_total_frames()
+  local lagged_frames = obs_get_lagged_frames()
+  
+  -- Get skipped frames
+  local encoded_frames = 0
+  local skipped_frames = 0
+  
+  local video = obsffi.obs_get_video()
+  if video ~= nil then
+    encoded_frames = obsffi.video_output_get_total_frames(video)
+    skipped_frames = obsffi.video_output_get_skipped_frames(video)
+  end
+  
+  -- Get dropped frames, congestion and total bytes
+  local dropped_frames = 0
+  local congestion = 0.0
+  local total_bytes = 0
+  local total_frames = 0
+
+  -- local streaming_status = is_live ? "Live" : "Offline"
+  local streaming_status = "Offline"
+  if s.is_live then 
+    streaming_status = "Live"
+  end
+
+  local streaming_duration_total_seconds = 0
+
+  local streaming_output = obs_frontend_get_streaming_output()
+  -- output will be nil when not actually streaming
+  if streaming_output ~= nil then
+    dropped_frames = obs_output_get_frames_dropped(streaming_output)
+    congestion = obs_output_get_congestion(streaming_output)
+    total_bytes = obs_output_get_total_bytes(streaming_output)
+    --local connect_time = obs_output_get_connect_time_ms(streaming_output)
+    
+    -- Streaming status
+    local is_reconnecting = obs_output_reconnecting(streaming_output)
+    if is_reconnecting then
+      streaming_status = "Reconnecting"
+    end
+
+    -- Get streaming duration
+    total_frames = obs_output_get_total_frames(streaming_output)
+    streaming_duration_total_seconds =  total_frames / fps
+
+    obs_output_release(streaming_output)
+  end
+  
+  -- Check that congestion is not NaN
+  if(congestion == congestion) then
+    s.congestion_cumulative = s.congestion_cumulative + congestion
+  end
+
+  -- Get bitrate
+  local current_time = os_gettime_ns()
+  local time_passed = (current_time - s.last_bytes_time) / 1000000000.0
+  
+  if time_passed > 2.0 then
+    local bytes_sent = total_bytes
+    
+    if bytes_sent < s.last_bytes_sent then
+      bytes_sent = 0
+    end
+    if bytes_sent == 0 then
+      s.last_bytes_sent = 0
+    end
+    
+    local bits_between = (bytes_sent - s.last_bytes_sent) * 8
+    bitrate = bits_between / time_passed / 1000.0
+
+    s.last_bytes_sent = bytes_sent
+    s.last_bytes_time = current_time
+  end
+  
+  local recording_duration_total_seconds = 0
+
+  -- Get recording bitrate
+  if obs_frontend_recording_active() then
+    local recording_output = obs_frontend_get_recording_output()
+    local recording_total_bytes = 0
+
+    if recording_output ~= nil then
+      recording_total_bytes = obs_output_get_total_bytes(recording_output)
+
+      -- Get recording duration
+      local recording_total_frames = obs_output_get_total_frames(recording_output)
+      recording_duration_total_seconds = recording_total_frames / fps
+
+      obs_output_release(recording_output)
+    end
+    
+    if time_passed > 2.0 then
+      local recording_bytes_recorded = recording_total_bytes
+      
+      if recording_bytes_recorded < s.recording_last_bytes_recorded then
+        recording_bytes_recorded = 0
+      end
+      if recording_bytes_recorded == 0 then
+        s.recording_last_bytes_recorded = 0
+      end
+      
+      local recording_bits_between = (recording_bytes_recorded - s.recording_last_bytes_recorded) * 8
+      s.recording_bitrate = recording_bits_between / time_passed / 1000.0
+
+      s.recording_last_bytes_recorded = recording_bytes_recorded
+    end
+  end
+
+  -- fix NaN
+  if rendered_frames == 0 then rendered_frames = 1 end
+  if encoded_frames == 0 then encoded_frames = 1 end
+  if total_frames == 0 then total_frames = 1 end
+  if s.total_ticks == 0 then s.total_ticks = 1 end
+
+  -- Update strings with new values
+  s.lagged_frames = tostring(lagged_frames)
+  s.lagged_total_frames = tostring(rendered_frames)
+  s.lagged_percents = string.format("%.1f", 100.0 * lagged_frames / rendered_frames)
+
+  s.skipped_frames = tostring(skipped_frames)
+  s.skipped_total_frames = tostring(encoded_frames)
+  s.skipped_percents = string.format("%.1f", 100.0 * skipped_frames / encoded_frames)
+
+  s.dropped_frames = tostring(dropped_frames)
+  s.dropped_total_frames = tostring(total_frames)
+  s.dropped_percents = string.format("%.1f", 100.0 * dropped_frames / total_frames)
+
+  s.congestion = string.format("%.2f", 100 * congestion)
+  s.average_congestion = string.format("%.2f", 100 * s.congestion_cumulative / s.total_ticks)
+  
+  s.average_frame_time = string.format("%.1f", average_frame_time)
+  s.fps = string.format("%.2g", fps)
+  s.average_fps = string.format("%.2g", s.fps_cumulative / s.total_ticks)
+  
+  s.memory_usage = string.format("%.1f", memory_usage)
+  s.cpu_usage = string.format("%.1f", cpu_usage)
+
+  s.bitrate = string.format("%.0f", bitrate)
+  s.recording_bitrate = string.format("%.0f", s.recording_bitrate)
+
+  s.streaming_status = string.format("%s", streaming_status)
+
+end
+
+function tick_script_update()
+
+  local physical_cores = os_get_physical_cores()
+  local logical_cores = os_get_logical_cores()
+
+  is_live = obs_frontend_streaming_active()
+  if obs_frontend_recording_active() then
+    if obs_frontend_recording_paused() then
+      s.recording_status = "Paused"
+    else 
+      s.recording_status = "On"
+    end
+  else
+    s.recording_status = "Off"
+  end
+  s.cpu_cores = string.format("%sC/%sT", physical_cores, logical_cores)
+
+  if not t.cpu_info then
+    t.cpu_info = obsffi.os_cpu_usage_info_start()
+    res_defer {res = t.cpu_info, defer = obsffi.os_cpu_usage_info_destroy } 
+  end
+end
+
+repeat sleep(0.3)
+  tick_script_update()
+  obs_stats_tick()
+  local info_stats = ''
+  for k,v in pairs(s) do info_stats = info_stats .. ("[%s] [%s] \n"):format(k,v) end
+  local function update_text(source, text) local settings = obs_data_create() obs_data_set_string(settings, "text", text)
+    obs_source_update(source, settings) obs_data_release(settings) end
+  update_text(source, info_stats)
+
+
+until false
+
+]===]
+
+SNIPPETS.s_loop_media = [==[
+
+local loop = {}
+function set_loop()
+  if not loop.start then loop.start = obs_source_media_get_time(source) sleep(0.2) return end
+  if not loop._end then loop._end = obs_source_media_get_time(source) sleep(0.2) return end
+
+end
+function watch_duration()
+  if loop._end then
+    local current = obs_source_media_get_time(source)
+    if current >= loop._end then
+      obs_source_media_set_time(source, loop.start)
+    end
+  end
+end
+repeat sleep(0)
+  if t.pressed then set_loop() end
+  if t.pressed2 then loop.start,loop._end = nil,nil end
+  watch_duration()
+until false
+
+]==]
+
+SNIPPETS.s_on_off_sceneitem = [==[
+
+local name = ""
+local scene_item = get_scene_sceneitem(return_source_name(source),name)
+repeat sleep(2.5)
+  local boolean = not obs_sceneitem_visible(scene_item)
+  obs_sceneitem_set_visible(scene_item, boolean)
+until false
+
+]==]
+--~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~wwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwww
 
 CODE_STORAGE_INIT = [===[
 
