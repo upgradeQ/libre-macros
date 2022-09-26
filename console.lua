@@ -17,8 +17,8 @@ You should have received a copy of the GNU Affero General Public License
 along with this program.  If not, see <https://www.gnu.org/licenses/>.
 ]]
 print(copyleft)
-_ver = "3.1.0"
-_tested = ("OBS 27.2.4 64bit Windows 11 extension version %s"):format(_ver)
+_ver = "3.2.0"
+_tested = ("OBS 28.0.2 64bit Windows 11 extension version %s"):format(_ver)
 
 --~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~wwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwww
 -- https://stackoverflow.com/a/8891620 by kikito
@@ -66,6 +66,8 @@ i18n.locales.en = {
   s_on_off_sceneitem = 'On/off sceneitem every 2.5 seconds',
   s_loop_media  = 'Loop media source between start and end via hotkey',
   s_general_stats  = 'Write internal stats to text source',
+  s_browser_refresh = 'Update browser every 15 minutes',
+  s_render_delay = 'Overwrite maximum render delay limit',
 }
 
 i18n.locales.ru = {
@@ -93,6 +95,8 @@ i18n.locales.ru = {
   s_on_off_sceneitem = 'Вкл/выкл предмет сцены каждые 2.5 секунды',
   s_loop_media  = 'Повтор медиа источника через сочетание клавиш',
   s_general_stats  = 'Записать специальную статистику в текстовый источник',
+  s_browser_refresh = 'Обновлять браузер каждые 15 минут',
+  s_render_delay = 'Выставить сверхзначение задержки отображения',
 }
 --~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~wwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwww
 -- id - obs keyboard id , c - character , cs - character with shift pressed
@@ -202,488 +206,6 @@ end
 function sleep(s)
   local action = Timer:new{duration=s}
   action:launch()
-end
---~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~wwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwww
--- function script_tick(dt) end -- external loop, can be used for messaging/signalling
-run = coroutine.create
-init = function() return run(function() coroutine.yield() end) end
-SUB = {} -- {{"pipe_name": num_code}, ...}
-gn = {}
-
-_OFFER = 111;function offer(pipe_name) SUB[pipe_name] = _OFFER end
-_STALL = 222;function stall(pipe_name) SUB[pipe_name] = _STALL end
-_FORWARD = 333;function forward(pipe_name) SUB[pipe_name] = _FORWARD end
-_SWITCH = 444;function switch(pipe_name) SUB[pipe_name] = _SWITCH end
-_RECOMPILE = 555;function recompile(pipe_name) SUB[pipe_name] = _RECOMPILE end
-
-local function executor(ctx, code, loc, name) -- args defined automatically  as local
-  local custom_env52  = {}
-  setmetatable(custom_env52, {__index = _G})
-  custom_env52.source = obs_filter_get_parent(ctx.filter)
-  loc = loc or "exec" -- special locaition address if python sript is present
-  name = name or "obs repl"
-  custom_env52.t = ctx
-  code = code or custom_env52.t.code
-  for k,v in pairs(utils) do custom_env52[k] = setfenv(v,custom_env52) end
-  local exec = assert(load(CODE_STORAGE_INIT .. code, name, "t", custom_env52))
-  -- executor submits code to event loop, which will execute it with .resume
-  ctx[loc] = run(exec)
-end
-
-local function skip_tick_render(ctx)
-  local target = obs_filter_get_target(ctx.filter)
-  local width, height;
-  if target == nil then width = 0; height = 0; else
-    width = obs_source_get_base_width(target)
-    height = obs_source_get_base_height(target)
-  end
-  ctx.width, ctx.height = width , height
-end
-
-local function viewer()
-  error(">Script Log")
-end
---~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~wwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwww
-local SourceDef = {}
-
-function SourceDef:new(o)
-  o = o or {}
-  setmetatable(o, self)
-  self.__index = self
-  return o
-end
-
-function SourceDef:_set_timer_loop() 
-  local value = SourceDef.__interval
-  local ms = (1/value) * 1000; ms = ms + (2^52 + 2^51) - (2^52 + 2^51) 
-  local interval = 1/value 
-  timer_add(function() SourceDef._event_loop(self, interval) end, ms)
-  self.loop_executor_timer = true
-end
-
-function SourceDef:create(source)
-  local instance = {}
-  instance.filter = source -- filter source itself
-  instance.hotkeys = {}
-  instance.hk = {}
-  instance.pressed = false
-  instance.pressed2 = false
-  instance.pressed3 = false
-  instance.created_hotkeys = false
-
-  instance.button_dispatch = false
-  instance.preload = true
-  instance.hotkey_dispatch = false
-  instance.actions_dispatch = false
-  instance.is_action_paused = false
-
-  instance.tasks = {}
-  instance.exec = init()
-  instance.external_py = init()
-  instance.exec_action_code = init()
-  instance.on_show_task = init()
-  instance.on_hide_task = init()
-  instance.on_activate_task = init()
-  instance.on_deactivate_task = init()
-
-  instance._res_defer = {} -- { {res = some_resource, defer = some_cleanup_callback, created = id }, ...}
-
-  if obs_source_get_unversioned_id(source):find("timer") then 
-    SourceDef._set_timer_loop(instance)
-  end
-  SourceDef.update(instance, self) -- self = settings
-  return instance
-end
-
-function SourceDef:destroy()
-  for k,v in pairs(self._res_defer) do
-    v.defer(v.res)
-  end
-end
-
-function SourceDef:update(settings)
-  self.code = obs_data_get_string(settings, "_text")
-  self.action_code = obs_data_get_string(settings, "_action")
-  self.autorun = obs_data_get_bool(settings, "_autorun")
-  self.mv1 = obs_data_get_double(settings, "_mv1")
-  self.mv2 = obs_data_get_double(settings, "_mv2")
-  self.hotreload = obs_data_get_string(settings, "_hotreload")
-  self.p1 = obs_data_get_string(settings, "_p1")
-  self.p2 = obs_data_get_string(settings, "_p2")
-  self.snippet = obs_data_get_string(settings, "_snippets_list")
-
-  if not self.created_hotkeys then
-    SourceDef._reg_htk(self, settings)
-  end
-end
-
-function SourceDef:_event_loop(seconds)
-  -- button restarts code on click 
-  -- actions and external python do same
-  -- hotkey waits until execution has finished
-
-  if self.button_dispatch then
-    coroutine.resume(self.exec, seconds)
-    if coroutine.status(self.exec) == "dead" then self.button_dispatch = false end
-
-  elseif self.hotkey_dispatch then
-    if coroutine.status(self.exec) == "dead" then
-      executor(self)
-      self.hotkey_dispatch = false
-    else
-      coroutine.resume(self.exec, seconds)
-    end
-
-  elseif self.autorun and not self.button_dispatch then
-    if self.preload then self.preload = false; executor(self) end
-    coroutine.resume(self.exec, seconds)
-  end
-
-  for _, coro in pairs(self.tasks) do
-    coroutine.resume(coro, seconds)
-  end
-
-  for _, i in pairs {"show", "hide", "activate", "deactivate"} do
-    coroutine.resume(self["on_"..i.."_task"], seconds)
-    if self["emit_"..i] and self["on_"..i.."_do"]
-      and coroutine.status(self["on_"..i.."_task"]) == "dead" then -- blocking
-      self["emit_"..i] = false
-      self["on_"..i.."_do"]()
-    end
-  end
-  -- poll for changes in global shared table for all console sources
-  for name, num_code in pairs(SUB) do
-    if num_code == _OFFER and self.pipe_name == name then
-      self.actions_dispatch = true
-      SUB[name] = 999
-    elseif num_code == _STALL and self.pipe_name == name then
-      self.is_action_paused = true
-      SUB[name] = 999
-    elseif num_code == _FORWARD and self.pipe_name == name then
-      self.is_action_paused = false
-      SUB[name] = 999
-    elseif num_code == _SWITCH and self.pipe_name == name then
-      self.is_action_paused = not self.is_action_paused
-      SUB[name] = 999
-    elseif num_code == _RECOMPILE and self.pipe_name == name then
-      executor(self, self.action_code, "exec_action_code", "actions entry recompiled")
-      SUB[name] = 999
-    end
-  end
-  if self.actions_dispatch then
-    executor(self, self.action_code, "exec_action_code", "actions entry")
-    self.actions_dispatch = false
-  end
-  if not self.is_action_paused then
-    coroutine.resume(self.exec_action_code, seconds)
-  end
-
-  coroutine.resume(self.external_py, seconds)
-
-end
-
-function SourceDef:get_properties()
-  local props = obs_properties_create()
-  local text_area = obs_properties_add_text(props, "_text", "", OBS_TEXT_MULTILINE)
-  obs_property_text_set_monospace(text_area, true)
-  obs_properties_add_button(props, "button1", i18n"execute", function()
-    self.button_dispatch = true
-    executor(self)
-  end)
-  local s = "+   -  -  -  -  -  -  -  -  -  -  [ " .. i18n"view_output"
-  .. " ] -  -  -  -  -  -  -  -  -  -    +"
-  obs_properties_add_button(props, "button2", s, viewer)
-  obs_properties_add_bool(props, "_autorun", i18n"auto_run")
-  local text_area2 = obs_properties_add_text(props, "_action", "", OBS_TEXT_MULTILINE)
-  obs_property_text_set_monospace(text_area2, true)
-  local snippets = obs_properties_create()
-  local mylist = obs_properties_add_list(snippets, "_snippets_list", "", OBS_COMBO_TYPE_LIST, OBS_COMBO_FORMAT_STRING)
-  for k,v in pairs(SNIPPETS) do 
-    obs_property_list_add_string(mylist,i18n(k),v)
-  end
-
-  local btn = obs_properties_add_button(snippets, "button3", i18n"_snip_select", function()
-    local s = obs_source_get_settings(self.filter)
-    if not obs_data_get_bool(s, "_confirm") then obs_data_release(s) return true end
-    obs_data_set_string(s, "_text", self.snippet)
-    obs_data_set_bool(s, "_confirm", false)
-    obs_source_update(self.filter, s)
-    obs_data_release(s)
-    return true
-  end)
-  obs_properties_add_bool(snippets, "_confirm", i18n"_snip_confirm")
-  obs_properties_add_group(props, "_groupextra", i18n"_snippets", OBS_GROUP_NORMAL, snippets)
-
-  local group_props = obs_properties_create()
-  local _mv1, _mv2, _hotreload, _p1, _p2;
-  _mv1 = obs_properties_add_float_slider(group_props, "_mv1", i18n"s_mv1", 0, 1, 0.01)
-  _mv2 = obs_properties_add_int_slider(group_props, "_mv2", i18n"s_mv2", 0, 100, 1)
-  _hotreload = obs_properties_add_text(group_props, "_hotreload", i18n"hotreload", OBS_TEXT_DEFAULT)
-  _p1 = obs_properties_add_path(group_props, "_p1", i18n"p1", OBS_PATH_FILE, "*.lua", script_path())
-  _p2 = obs_properties_add_path(group_props, "_p2", i18n"p2", OBS_PATH_FILE, "*.lua", script_path())
-  obs_properties_add_group(props, "_group", i18n"p_group_name", OBS_GROUP_NORMAL, group_props)
-
-  return props
-end
-
-function SourceDef:show()
-  self.emit_show = true -- going to preview
-end
-
-function SourceDef:hide()
-  self.emit_hide = true -- hiding from preview
-end
-
-function SourceDef:activate()
-  self.emit_activate = true -- going to program
-end
-
-function SourceDef:deactivate()
-  self.emit_deactivate = true -- retiring from program 
-end
-
-
-function SourceDef:video_render(effect)
-  local target = obs_filter_get_parent(self.filter)
-  if target ~= nil then -- do not render, assign height & width to make scene item source selectable
-    self.width = obs_source_get_base_width(target)
-    self.height = obs_source_get_base_height(target)
-  end
-  obs_source_skip_video_filter(self.filter)
-end
-
-function SourceDef:get_width() return self.width end
-
-function SourceDef:get_height() return self.height end
-
-function SourceDef:get_name() return i18n"Console" end
-
-function SourceDef:load(settings) SourceDef._reg_htk(self, settings) end
-
-function SourceDef:video_tick(seconds)
-  if not self.loop_executor_timer then
-    SourceDef._event_loop(self, seconds)
-  end
-  skip_tick_render(self) -- if source has crop or transform applied to it, this will let it render
-end
-
-function SourceDef:save(settings)
-  if self.created_hotkeys then
-    self.created_hotkeys = true
-  end
-  for k, v in pairs(self.hotkeys) do
-    local a = obs_hotkey_save(self.hk[k])
-    obs_data_set_array(settings, k, a)
-    obs_data_array_release(a)
-  end
-end
-
-function SourceDef:_reg_htk(settings)
-  local parent = obs_filter_get_parent(self.filter)
-  local source_name = obs_source_get_name(parent)
-  local filter_name = obs_source_get_name(self.filter)
-  if parent and source_name and filter_name then
-    self.hotkeys["0;" .. source_name .. ";" .. filter_name] = function()
-      self.hotkey_dispatch = true
-    end
-    self.hotkeys["1;" .. source_name .. ";" .. filter_name] = function(pressed)
-      self.pressed = pressed
-    end
-    self.hotkeys["2;" .. source_name .. ";" .. filter_name] = function(pressed)
-      self.pressed2 = pressed
-    end
-    self.hotkeys["3;" .. source_name .. ";" .. filter_name] = function(pressed)
-      self.pressed3 = pressed
-    end
-
-    for k, v in pairs(self.hotkeys) do
-      self.hk[k] = OBS_INVALID_HOTKEY_ID
-    end
-
-    function reroute_hotkey_state(k)
-      self.hk[k] = obs_hotkey_register_frontend(k, k, function(pressed)
-        if pressed then
-          self.hotkeys[k](true)
-        else
-          self.hotkeys[k](false)
-        end
-      end)
-    end
-
-    for k, v in pairs(self.hotkeys) do
-      if k:sub(1, 1) == "1" then -- starts with 1 symbol
-        reroute_hotkey_state(k)
-      elseif k:sub(1, 1) == "2" then 
-        reroute_hotkey_state(k)
-      elseif k:sub(1, 1) == "3" then 
-        reroute_hotkey_state(k)
-      else
-        self.hk[k] = obs_hotkey_register_frontend(k, k, function(pressed)
-          if pressed then
-            self.hotkeys[k]()
-          end
-        end)
-      end
-      local a = obs_data_get_array(settings, k)
-      obs_hotkey_load(self.hk[k], a)
-      obs_data_array_release(a)
-    end
-    if not self.created_hotkeys then
-      self.created_hotkeys = true
-    end
-  end
-end
-
-
---~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~wwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwww
-as_custom_source = SourceDef:new({
-  id = "s_console_source",
-  type = OBS_SOURCE_TYPE_SOURCE,
-  output_flags = bit.bor(OBS_SOURCE_VIDEO, OBS_SOURCE_CUSTOM_DRAW, OBS_SOURCE_AUDIO),
-})
-function as_custom_source:get_name() return "AGPLv3+ obs-libre-macros by upgradeQ" end
-function as_custom_source:video_render(settings) end
-function as_custom_source:get_height() return 200 end
-function as_custom_source:get_width() return 200 end
-function as_custom_source:load(settings) as_custom_source._reg_htk(self, settings) end
-
-function as_custom_source:update(settings)
-  self.code = obs_data_get_string(settings, "_text")
-  self.autorun = obs_data_get_bool(settings, "_autorun")
-  self.mv1 = obs_data_get_double(settings, "_mv1")
-  self.mv2 = obs_data_get_double(settings, "_mv2")
-  self.hotreload = obs_data_get_string(settings, "_hotreload")
-  self.p1 = obs_data_get_string(settings, "_p1")
-  self.p2 = obs_data_get_string(settings, "_p2")
--- custom source logic for registering hotkeys
-  if not self.created_hotkeys then
-    as_custom_source._reg_htk(self, settings)
-  end
-end
-
-function as_custom_source:_reg_htk(settings)
-  -- note it's not a filter but rather a source itself
-  local source_name = obs_source_get_name(self.filter)
-  if source_name then
-    self.hotkeys["2;" .. source_name] = function()
-      self.hotkey_dispatch = true
-    end
-    self.hotkeys["3;" .. source_name] = function(pressed)
-      self.pressed = pressed
-    end
-
-    for k, v in pairs(self.hotkeys) do
-      self.hk[k] = OBS_INVALID_HOTKEY_ID
-    end
-
-    for k, v in pairs(self.hotkeys) do
-      if k:sub(1, 1) == "3" then -- starts with 3 symbol
-        self.hk[k] = obs_hotkey_register_frontend(k, k, function(pressed)
-          if pressed then
-            self.hotkeys[k](true)
-          else
-            self.hotkeys[k](false)
-          end
-        end)
-      else
-        self.hk[k] = obs_hotkey_register_frontend(k, k, function(pressed)
-          if pressed then
-            self.hotkeys[k]()
-          end
-        end)
-      end
-      local a = obs_data_get_array(settings, k)
-      obs_hotkey_load(self.hk[k], a)
-      obs_data_array_release(a)
-    end
-    if not self.created_hotkeys then
-      self.created_hotkeys = true
-    end
-  end
-end
-
-as_gap_source = {}
-function as_gap_source:create(source) 
-  local instance = {}
-  as_gap_source.update(instance, self) -- self = settings and this shows it on screen
-  return instance
-end
-function as_gap_source:get_name() return i18n"Gap source" end
-function as_gap_source:update(settings) 
-  self.height = obs_data_get_double(settings, "_height")
-  self.width = obs_data_get_double(settings, "_width")
-end
-function as_gap_source:get_properties()
-  local props = obs_properties_create()
-  obs_properties_add_int_slider(props, "_width", i18n"width", 1, 9999, 1)
-  obs_properties_add_int_slider(props, "_height", i18n"height", 1, 9999, 1)
-  return props
-end
-function as_gap_source:load(settings)
-  self.height = obs_data_get_double(settings, "_height")
-  self.width = obs_data_get_double(settings, "_width")
-end
-function as_gap_source:get_height() return self.height end
-function as_gap_source:get_width() return self.width end
-as_gap_source.id = "_gap_source"
-as_gap_source.type = OBS_SOURCE_TYPE_SOURCE
-as_gap_source.output_flags = bit.bor(OBS_SOURCE_VIDEO, OBS_SOURCE_CUSTOM_DRAW)
---~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~wwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwww
-function script_description()
-  return copyleft:sub(1, 168) .. '\nTested on: ' .. _tested ..
-  '\nReleased under GNU Affero General Public License, AGPLv3+'
-end
-
-function script_properties()
-  local props = obs_properties_create()
-  local props_group1 = obs_properties_create()
-  obs_properties_add_bool(props_group1, "_flag_custom", i18n"Console sceneitem custom")
-  obs_properties_add_bool(props_group1, "_flag_gap", i18n"Gap source")
-  obs_properties_add_bool(props_group1, "_flag_console_timer", i18n"Console (Timer)")
-  obs_properties_add_float(props_group1, "_interval",i18n"interval",0,999,0.001)
-  obs_properties_add_group(props, "group1", i18n"g2_restart", OBS_GROUP_NORMAL, props_group1)
-  local _langs = obs_properties_add_list(props, "_lang", i18n"select_lang", OBS_COMBO_TYPE_LIST, OBS_COMBO_FORMAT_STRING)
-
-  for k, v in pairs {en="English", ru="Русский"} do
-    obs_property_list_add_string(_langs, v, k)
-  end
-
-  return props
-end
-
-function script_defaults(settings)
-  obs_data_set_default_string(settings, "_lang", "en")
-  obs_data_set_default_double(settings, "_interval",60)
-end
-
-function script_load(settings)
-  i18n.set_locale(obs_data_get_string(settings, "_lang")) -- must load first
-  local as_video_filter = SourceDef:new({id = "v_console_source", type = OBS_SOURCE_TYPE_FILTER, output_flags = bit.bor(OBS_SOURCE_VIDEO),})
-  obs_register_source(as_video_filter)
-
-  local as_audio_filter = SourceDef:new({ id = "a_console_source", type = OBS_SOURCE_TYPE_FILTER, output_flags = bit.bor(OBS_SOURCE_AUDIO),})
-  obs_register_source(as_audio_filter)
-
-
-  if obs_data_get_bool(settings, "_flag_gap") then
-    obs_register_source(as_gap_source) 
-  end
-  if obs_data_get_bool(settings, "_flag_custom") then
-    obs_register_source(as_custom_source) 
-  end
-  if obs_data_get_bool(settings, "_flag_console_timer") then
-    local interval = obs_data_get_double(settings, "_interval")
-    local as_audio_filter_timer, as_video_filter_timer = as_audio_filter, as_video_filter
-    as_video_filter_timer.id = "v_console_source_timer"
-    SourceDef.__interval = interval
-    function as_video_filter_timer:get_name() return i18n"Console (Timer)" end 
-
-    as_audio_filter_timer.id = "a_console_source_timer"
-    SourceDef.__interval = interval
-    function as_audio_filter_timer:get_name() return i18n"Console (Timer)" end 
-    obs_register_source(as_video_filter_timer)
-    obs_register_source(as_audio_filter_timer)
-  end
 end
 --~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~wwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwww
 -- global general purpose functions -  preloaded
@@ -1033,6 +555,13 @@ int os_process_pipe_destroy(os_process_pipe_t *pp);
 function pp_execute(cmd_line)
    local pp = obsffi.os_process_pipe_create(cmd_line "r");
    obsffi.os_process_pipe_destroy(pp)
+end
+
+function click_property(source, name)
+  local props = obs_source_properties(source)
+  local prop = obs_properties_get(props, name)
+  obs_property_button_clicked(prop, source)
+  obs_properties_destroy(props)
 end
 
 -- setfenv functions with nonlocal variable t(instance)
@@ -1502,6 +1031,22 @@ repeat sleep(2.5)
 until false
 
 ]==]
+
+SNIPPETS.s_browser_refresh = [==[
+
+repeat sleep(1*60*15)
+  click_property(source, "refreshnocache")
+until false
+
+]==]
+
+SNIPPETS.s_render_delay = [==[
+
+  local filter_name = "Render Delay"
+  set_settings3(source, filter_name, '{"delay_ms":3000}')
+
+]==]
+
 --~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~wwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwww
 
 CODE_STORAGE_INIT = [===[
@@ -1509,5 +1054,487 @@ CODE_STORAGE_INIT = [===[
 -- leave empty new line with 2 spaces, there might be bootstraping and initialization code here
   
 ]===]
+--~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~wwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwww
+-- function script_tick(dt) end -- external loop, can be used for message bus/signalling
+run = coroutine.create
+init = function() return run(function() coroutine.yield() end) end
+SUB = {} -- {{"pipe_name": num_code}, ...}
+gn = {}
+
+_OFFER = 111;function offer(pipe_name) SUB[pipe_name] = _OFFER end
+_STALL = 222;function stall(pipe_name) SUB[pipe_name] = _STALL end
+_FORWARD = 333;function forward(pipe_name) SUB[pipe_name] = _FORWARD end
+_SWITCH = 444;function switch(pipe_name) SUB[pipe_name] = _SWITCH end
+_RECOMPILE = 555;function recompile(pipe_name) SUB[pipe_name] = _RECOMPILE end
+
+local function executor(ctx, code, loc, name) -- args defined automatically  as local
+  local custom_env52  = {}
+  setmetatable(custom_env52, {__index = _G})
+  custom_env52.source = obs_filter_get_parent(ctx.filter)
+  loc = loc or "exec" -- special locaition address if python sript is present
+  name = name or "obs repl"
+  custom_env52.t = ctx
+  code = code or custom_env52.t.code
+  for k,v in pairs(utils) do custom_env52[k] = setfenv(v,custom_env52) end
+  local exec = assert(load(CODE_STORAGE_INIT .. code, name, "t", custom_env52))
+  -- executor submits code to event loop, which will execute it with .resume
+  ctx[loc] = run(exec)
+end
+
+local function skip_tick_render(ctx)
+  local target = obs_filter_get_target(ctx.filter)
+  local width, height;
+  if target == nil then width = 0; height = 0; else
+    width = obs_source_get_base_width(target)
+    height = obs_source_get_base_height(target)
+  end
+  ctx.width, ctx.height = width , height
+end
+
+local function viewer()
+  error(">Script Log")
+end
+--~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~wwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwww
+local SourceDef = {}
+
+function SourceDef:new(o)
+  o = o or {}
+  setmetatable(o, self)
+  self.__index = self
+  return o
+end
+
+function SourceDef:_set_timer_loop() 
+  local value = SourceDef.__interval
+  local ms = (1/value) * 1000; ms = ms + (2^52 + 2^51) - (2^52 + 2^51) 
+  local interval = 1/value 
+  timer_add(function() SourceDef._event_loop(self, interval) end, ms)
+  self.loop_executor_timer = true
+end
+
+function SourceDef:create(source)
+  local instance = {}
+  instance.filter = source -- filter source itself
+  instance.hotkeys = {}
+  instance.hk = {}
+  instance.pressed = false
+  instance.pressed2 = false
+  instance.pressed3 = false
+  instance.created_hotkeys = false
+
+  instance.button_dispatch = false
+  instance.preload = true
+  instance.hotkey_dispatch = false
+  instance.actions_dispatch = false
+  instance.is_action_paused = false
+
+  instance.tasks = {}
+  instance.exec = init()
+  instance.external_py = init()
+  instance.exec_action_code = init()
+  instance.on_show_task = init()
+  instance.on_hide_task = init()
+  instance.on_activate_task = init()
+  instance.on_deactivate_task = init()
+
+  instance._res_defer = {} -- { {res = some_resource, defer = some_cleanup_callback, created = id }, ...}
+
+  if obs_source_get_unversioned_id(source):find("timer") then 
+    SourceDef._set_timer_loop(instance)
+  end
+  SourceDef.update(instance, self) -- self = settings
+  return instance
+end
+
+function SourceDef:destroy()
+  for k,v in pairs(self._res_defer) do
+    v.defer(v.res)
+  end
+end
+
+function SourceDef:update(settings)
+  self.code = obs_data_get_string(settings, "_text")
+  self.action_code = obs_data_get_string(settings, "_action")
+  self.autorun = obs_data_get_bool(settings, "_autorun")
+  self.mv1 = obs_data_get_double(settings, "_mv1")
+  self.mv2 = obs_data_get_double(settings, "_mv2")
+  self.hotreload = obs_data_get_string(settings, "_hotreload")
+  self.p1 = obs_data_get_string(settings, "_p1")
+  self.p2 = obs_data_get_string(settings, "_p2")
+  self.snippet_name = obs_data_get_string(settings, "_snippet_name")
+
+  if not self.created_hotkeys then
+    SourceDef._reg_htk(self, settings)
+  end
+end
+
+function SourceDef:_event_loop(seconds)
+  -- button restarts code on click 
+  -- actions and external python do same
+  -- hotkey waits until execution has finished
+
+  if self.button_dispatch then
+    coroutine.resume(self.exec, seconds)
+    if coroutine.status(self.exec) == "dead" then self.button_dispatch = false end
+
+  elseif self.hotkey_dispatch then
+    if coroutine.status(self.exec) == "dead" then
+      executor(self)
+      self.hotkey_dispatch = false
+    else
+      coroutine.resume(self.exec, seconds)
+    end
+
+  elseif self.autorun and not self.button_dispatch then
+    if self.preload then self.preload = false; executor(self) end
+    coroutine.resume(self.exec, seconds)
+  end
+
+  for _, coro in pairs(self.tasks) do
+    coroutine.resume(coro, seconds)
+  end
+
+  for _, i in pairs {"show", "hide", "activate", "deactivate"} do
+    coroutine.resume(self["on_"..i.."_task"], seconds)
+    if self["emit_"..i] and self["on_"..i.."_do"]
+      and coroutine.status(self["on_"..i.."_task"]) == "dead" then -- blocking
+      self["emit_"..i] = false
+      self["on_"..i.."_do"]()
+    end
+  end
+  -- poll for changes in global shared table for all console sources
+  for name, num_code in pairs(SUB) do
+    if num_code == _OFFER and self.pipe_name == name then
+      self.actions_dispatch = true
+      SUB[name] = 999
+    elseif num_code == _STALL and self.pipe_name == name then
+      self.is_action_paused = true
+      SUB[name] = 999
+    elseif num_code == _FORWARD and self.pipe_name == name then
+      self.is_action_paused = false
+      SUB[name] = 999
+    elseif num_code == _SWITCH and self.pipe_name == name then
+      self.is_action_paused = not self.is_action_paused
+      SUB[name] = 999
+    elseif num_code == _RECOMPILE and self.pipe_name == name then
+      executor(self, self.action_code, "exec_action_code", "actions entry recompiled")
+      SUB[name] = 999
+    end
+  end
+  if self.actions_dispatch then
+    executor(self, self.action_code, "exec_action_code", "actions entry")
+    self.actions_dispatch = false
+  end
+  if not self.is_action_paused then
+    coroutine.resume(self.exec_action_code, seconds)
+  end
+
+  coroutine.resume(self.external_py, seconds)
+
+end
+
+function SourceDef:get_properties()
+  local props = obs_properties_create()
+  local text_area = obs_properties_add_text(props, "_text", "", OBS_TEXT_MULTILINE)
+  obs_property_text_set_monospace(text_area, true)
+  obs_properties_add_button(props, "button1", i18n"execute", function()
+    self.button_dispatch = true
+    executor(self)
+  end)
+  local s = "+   -  -  -  -  -  -  -  -  -  -  [ " .. i18n"view_output"
+  .. " ] -  -  -  -  -  -  -  -  -  -    +"
+  obs_properties_add_button(props, "button2", s, viewer)
+  obs_properties_add_bool(props, "_autorun", i18n"auto_run")
+  local text_area2 = obs_properties_add_text(props, "_action", "", OBS_TEXT_MULTILINE)
+  obs_property_text_set_monospace(text_area2, true)
+  local snippets = obs_properties_create()
+  local mylist = obs_properties_add_list(snippets, "_snippet_name", "", OBS_COMBO_TYPE_LIST, OBS_COMBO_FORMAT_STRING)
+  for k, _ in pairs(SNIPPETS) do 
+    obs_property_list_add_string(mylist, i18n(k), k)
+  end
+
+  local btn = obs_properties_add_button(snippets, "button3", i18n"_snip_select", function()
+    local s = obs_source_get_settings(self.filter)
+    if not obs_data_get_bool(s, "_confirm") then obs_data_release(s) return true end
+    obs_data_set_string(s, "_text", SNIPPETS[obs_data_get_string(s, "_snippet_name")])
+    obs_data_set_bool(s, "_confirm", false)
+    obs_source_update(self.filter, s)
+    obs_data_release(s)
+    return true
+  end)
+  obs_properties_add_bool(snippets, "_confirm", i18n"_snip_confirm")
+  obs_properties_add_group(props, "_groupextra", i18n"_snippets", OBS_GROUP_NORMAL, snippets)
+
+  local group_props = obs_properties_create()
+  local _mv1, _mv2, _hotreload, _p1, _p2;
+  _mv1 = obs_properties_add_float_slider(group_props, "_mv1", i18n"s_mv1", 0, 1, 0.01)
+  _mv2 = obs_properties_add_int_slider(group_props, "_mv2", i18n"s_mv2", 0, 100, 1)
+  _hotreload = obs_properties_add_text(group_props, "_hotreload", i18n"hotreload", OBS_TEXT_DEFAULT)
+  _p1 = obs_properties_add_path(group_props, "_p1", i18n"p1", OBS_PATH_FILE, "*.lua", script_path())
+  _p2 = obs_properties_add_path(group_props, "_p2", i18n"p2", OBS_PATH_FILE, "*.lua", script_path())
+  obs_properties_add_group(props, "_group", i18n"p_group_name", OBS_GROUP_NORMAL, group_props)
+
+  return props
+end
+
+function SourceDef:show()
+  self.emit_show = true -- going to preview
+end
+
+function SourceDef:hide()
+  self.emit_hide = true -- hiding from preview
+end
+
+function SourceDef:activate()
+  self.emit_activate = true -- going to program
+end
+
+function SourceDef:deactivate()
+  self.emit_deactivate = true -- retiring from program 
+end
+
+
+function SourceDef:video_render(effect)
+  local target = obs_filter_get_parent(self.filter)
+  if target ~= nil then -- do not render, assign height & width to make scene item source selectable
+    self.width = obs_source_get_base_width(target)
+    self.height = obs_source_get_base_height(target)
+  end
+  obs_source_skip_video_filter(self.filter)
+end
+
+function SourceDef:get_width() return self.width end
+
+function SourceDef:get_height() return self.height end
+
+function SourceDef:get_name() return i18n"Console" end
+
+function SourceDef:load(settings) SourceDef._reg_htk(self, settings) end
+
+function SourceDef:video_tick(seconds)
+  if not self.loop_executor_timer then
+    SourceDef._event_loop(self, seconds)
+  end
+  skip_tick_render(self) -- if source has crop or transform applied to it, this will let it render
+end
+
+function SourceDef:save(settings)
+  if self.created_hotkeys then
+    self.created_hotkeys = true
+  end
+  for k, v in pairs(self.hotkeys) do
+    local a = obs_hotkey_save(self.hk[k])
+    obs_data_set_array(settings, k, a)
+    obs_data_array_release(a)
+  end
+end
+
+function SourceDef:_reg_htk(settings)
+  local parent = obs_filter_get_parent(self.filter)
+  local source_name = obs_source_get_name(parent)
+  local filter_name = obs_source_get_name(self.filter)
+  if parent and source_name and filter_name then
+    self.hotkeys["0;" .. source_name .. ";" .. filter_name] = function()
+      self.hotkey_dispatch = true
+    end
+    self.hotkeys["1;" .. source_name .. ";" .. filter_name] = function(pressed)
+      self.pressed = pressed
+    end
+    self.hotkeys["2;" .. source_name .. ";" .. filter_name] = function(pressed)
+      self.pressed2 = pressed
+    end
+    self.hotkeys["3;" .. source_name .. ";" .. filter_name] = function(pressed)
+      self.pressed3 = pressed
+    end
+
+    for k, v in pairs(self.hotkeys) do
+      self.hk[k] = OBS_INVALID_HOTKEY_ID
+    end
+
+    function reroute_hotkey_state(k)
+      self.hk[k] = obs_hotkey_register_frontend(k, k, function(pressed)
+        if pressed then
+          self.hotkeys[k](true)
+        else
+          self.hotkeys[k](false)
+        end
+      end)
+    end
+
+    for k, v in pairs(self.hotkeys) do
+      if k:sub(1, 1) == "1" then -- starts with 1 symbol
+        reroute_hotkey_state(k)
+      elseif k:sub(1, 1) == "2" then 
+        reroute_hotkey_state(k)
+      elseif k:sub(1, 1) == "3" then 
+        reroute_hotkey_state(k)
+      else
+        self.hk[k] = obs_hotkey_register_frontend(k, k, function(pressed)
+          if pressed then
+            self.hotkeys[k]()
+          end
+        end)
+      end
+      local a = obs_data_get_array(settings, k)
+      obs_hotkey_load(self.hk[k], a)
+      obs_data_array_release(a)
+    end
+    if not self.created_hotkeys then
+      self.created_hotkeys = true
+    end
+  end
+end
+
+
+--~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~wwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwww
+as_custom_source = SourceDef:new({
+  id = "s_console_source",
+  type = OBS_SOURCE_TYPE_SOURCE,
+  output_flags = bit.bor(OBS_SOURCE_VIDEO, OBS_SOURCE_CUSTOM_DRAW, OBS_SOURCE_AUDIO),
+})
+function as_custom_source:get_name() return "AGPLv3+ obs-libre-macros by upgradeQ" end
+function as_custom_source:video_render(settings) end
+function as_custom_source:get_height() return 200 end
+function as_custom_source:get_width() return 200 end
+function as_custom_source:load(settings) as_custom_source._reg_htk(self, settings) end
+
+function as_custom_source:update(settings)
+  self.code = obs_data_get_string(settings, "_text")
+  self.autorun = obs_data_get_bool(settings, "_autorun")
+  self.mv1 = obs_data_get_double(settings, "_mv1")
+  self.mv2 = obs_data_get_double(settings, "_mv2")
+  self.hotreload = obs_data_get_string(settings, "_hotreload")
+  self.p1 = obs_data_get_string(settings, "_p1")
+  self.p2 = obs_data_get_string(settings, "_p2")
+-- custom source logic for registering hotkeys
+  if not self.created_hotkeys then
+    as_custom_source._reg_htk(self, settings)
+  end
+end
+
+function as_custom_source:_reg_htk(settings)
+  -- note it's not a filter but rather a source itself
+  local source_name = obs_source_get_name(self.filter)
+  if source_name then
+    self.hotkeys["2;" .. source_name] = function()
+      self.hotkey_dispatch = true
+    end
+    self.hotkeys["3;" .. source_name] = function(pressed)
+      self.pressed = pressed
+    end
+
+    for k, v in pairs(self.hotkeys) do
+      self.hk[k] = OBS_INVALID_HOTKEY_ID
+    end
+
+    for k, v in pairs(self.hotkeys) do
+      if k:sub(1, 1) == "3" then -- starts with 3 symbol
+        self.hk[k] = obs_hotkey_register_frontend(k, k, function(pressed)
+          if pressed then
+            self.hotkeys[k](true)
+          else
+            self.hotkeys[k](false)
+          end
+        end)
+      else
+        self.hk[k] = obs_hotkey_register_frontend(k, k, function(pressed)
+          if pressed then
+            self.hotkeys[k]()
+          end
+        end)
+      end
+      local a = obs_data_get_array(settings, k)
+      obs_hotkey_load(self.hk[k], a)
+      obs_data_array_release(a)
+    end
+    if not self.created_hotkeys then
+      self.created_hotkeys = true
+    end
+  end
+end
+
+as_gap_source = {}
+function as_gap_source:create(source) 
+  local instance = {}
+  as_gap_source.update(instance, self) -- self = settings and this shows it on screen
+  return instance
+end
+function as_gap_source:get_name() return i18n"Gap source" end
+function as_gap_source:update(settings) 
+  self.height = obs_data_get_double(settings, "_height")
+  self.width = obs_data_get_double(settings, "_width")
+end
+function as_gap_source:get_properties()
+  local props = obs_properties_create()
+  obs_properties_add_int_slider(props, "_width", i18n"width", 1, 9999, 1)
+  obs_properties_add_int_slider(props, "_height", i18n"height", 1, 9999, 1)
+  return props
+end
+function as_gap_source:load(settings)
+  self.height = obs_data_get_double(settings, "_height")
+  self.width = obs_data_get_double(settings, "_width")
+end
+function as_gap_source:get_height() return self.height end
+function as_gap_source:get_width() return self.width end
+as_gap_source.id = "_gap_source"
+as_gap_source.type = OBS_SOURCE_TYPE_SOURCE
+as_gap_source.output_flags = bit.bor(OBS_SOURCE_VIDEO, OBS_SOURCE_CUSTOM_DRAW)
+--~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~wwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwww
+function script_description()
+  return copyleft:sub(1, 168) .. '\nTested on: ' .. _tested ..
+  '\nReleased under GNU Affero General Public License, AGPLv3+'
+end
+
+function script_properties()
+  local props = obs_properties_create()
+  local props_group1 = obs_properties_create()
+  obs_properties_add_bool(props_group1, "_flag_custom", i18n"Console sceneitem custom")
+  obs_properties_add_bool(props_group1, "_flag_gap", i18n"Gap source")
+  obs_properties_add_bool(props_group1, "_flag_console_timer", i18n"Console (Timer)")
+  obs_properties_add_float(props_group1, "_interval",i18n"interval",0,999,0.001)
+  obs_properties_add_group(props, "group1", i18n"g2_restart", OBS_GROUP_NORMAL, props_group1)
+  local _langs = obs_properties_add_list(props, "_lang", i18n"select_lang", OBS_COMBO_TYPE_LIST, OBS_COMBO_FORMAT_STRING)
+
+  for k, v in pairs {en="English", ru="Русский"} do
+    obs_property_list_add_string(_langs, v, k)
+  end
+
+  return props
+end
+
+function script_defaults(settings)
+  obs_data_set_default_string(settings, "_lang", "en")
+  obs_data_set_default_double(settings, "_interval",60)
+end
+
+function script_load(settings)
+  i18n.set_locale(obs_data_get_string(settings, "_lang")) -- must load first
+  local as_video_filter = SourceDef:new({id = "v_console_source", type = OBS_SOURCE_TYPE_FILTER, output_flags = bit.bor(OBS_SOURCE_VIDEO),})
+  obs_register_source(as_video_filter)
+
+  local as_audio_filter = SourceDef:new({ id = "a_console_source", type = OBS_SOURCE_TYPE_FILTER, output_flags = bit.bor(OBS_SOURCE_AUDIO),})
+  obs_register_source(as_audio_filter)
+
+
+  if obs_data_get_bool(settings, "_flag_gap") then
+    obs_register_source(as_gap_source) 
+  end
+  if obs_data_get_bool(settings, "_flag_custom") then
+    obs_register_source(as_custom_source) 
+  end
+  if obs_data_get_bool(settings, "_flag_console_timer") then
+    local interval = obs_data_get_double(settings, "_interval")
+    local as_audio_filter_timer, as_video_filter_timer = as_audio_filter, as_video_filter
+    as_video_filter_timer.id = "v_console_source_timer"
+    SourceDef.__interval = interval
+    function as_video_filter_timer:get_name() return i18n"Console (Timer)" end 
+
+    as_audio_filter_timer.id = "a_console_source_timer"
+    SourceDef.__interval = interval
+    function as_audio_filter_timer:get_name() return i18n"Console (Timer)" end 
+    obs_register_source(as_video_filter_timer)
+    obs_register_source(as_audio_filter_timer)
+  end
+end
 
 -- vim: ft=lua ts=2 sw=2 et sts=2

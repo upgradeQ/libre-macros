@@ -34,10 +34,6 @@ utilising built-in embedded LuaJIT interpreter, filter UI and function environme
 - Open `Script Log` to view `Console` output.
 - Type some code into the text area.
 - Press `Execute!`.
-- Sample code: `print(obs_frontend_get_current_scene_collection())`
-- [Examples & Cheatsheet (python)](https://github.com/upgradeQ/OBS-Studio-Python-Scripting-Cheatsheet-obspython-Examples-of-API)
-
-# REPL usage
 
 Each Console instance has it's own namespace `t` and custom environment,
 you can access source which Console is attached to. e.g:
@@ -383,24 +379,29 @@ error('done') else error('not done') end
 `sname(source)` - returns source name as string
 
 `sceneitem = get_scene_sceneitem(scene_name, scene_item_name)`
+# Notes on exceptions 
+There might be exceptions in your code, it is recommended to add `print('start')` and `print('end')` statements to debug code in `Console`
 
 # Snippets
  * `On/off sceneitem every 2.5 seconds` - source must be a scene
  * `Loop media source between start and end via hotkey` - adds two hotkeys to set and clear loop (`1;` and `2;`)
  * `Write internal stats to text source` - based on [`OBS-Stats-on-Stream`](https://github.com/GreenComfyTea/OBS-Stats-on-Stream)
+ * `Update browser every 15 minutes`
+ * `Overwrite maximum render delay limit`
 
 # Contribute
 Contributions are welcome! You might take a look into source code for translation of UI to your language.
 
 # On the Roadmap 
-- Hook keyboard, hook mouse position for winapi and x11 using cdefs (using community packages)
-- Add more functions to control browser source
+- Hook keyboard events, hook mouse position for winapi and x11 using cdefs (using community packages)
+- Add more functions to control & interact with browser source
 - Add more snippets
-- Record source settings changes and replay it
+- Port and test on 32-bit, add advanced versioning, make it forward compatible
 
 # See also 
 * [pure Lua custom shader loader ](https://github.com/ps0ares/CustomShaders)
 * Advanced scene switcher [plugin](https://github.com/WarmUpTill/SceneSwitcher)
+* [Examples & Cheatsheet (python)](https://github.com/upgradeQ/OBS-Studio-Python-Scripting-Cheatsheet-obspython-Examples-of-API)
 
 # License
 <a href="https://www.gnu.org/licenses/agpl-3.0.en.html">
