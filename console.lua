@@ -17,8 +17,8 @@ You should have received a copy of the GNU Affero General Public License
 along with this program.  If not, see <https://www.gnu.org/licenses/>.
 ]]
 print(copyleft)
-_ver = "3.2.0"
-_tested = ("OBS 28.0.2 64bit Windows 11 extension version %s"):format(_ver)
+_ver = "3.3.0"
+_tested = ("OBS 28.1.1 64bit extension version %s"):format(_ver)
 
 --~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~wwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwww
 -- https://stackoverflow.com/a/8891620 by kikito
@@ -51,7 +51,8 @@ i18n.locales.en = {
   hotreload = 'Hot reload expression',
   p1 = 'Path 1',
   p2 = 'Path 2',
-  p_group_name = 'Settings for interval use, text area above is for global multi action pipes',
+  p_group_name = 'Settings for interval use',
+  p_text_area2 = 'Text area for global multi action pipes',
   width = 'Width',
   height = 'Height',
   g2_restart = 'Restart required to enable/disable this sources',
@@ -68,6 +69,7 @@ i18n.locales.en = {
   s_general_stats  = 'Write internal stats to text source',
   s_browser_refresh = 'Update browser every 15 minutes',
   s_render_delay = 'Overwrite maximum render delay limit',
+  sh_checkbox = 'Show/Hide ',
 }
 
 i18n.locales.ru = {
@@ -80,7 +82,8 @@ i18n.locales.ru = {
   hotreload = 'Выполнять выражение автоматически',
   p1 = 'Путь 1',
   p2 = 'Путь 2',
-  p_group_name = 'Внутренние настройки, поле текста выше для глобальных мульти последовательностей',
+  p_group_name = 'Внутренние настройки',
+  p_text_area2 = 'Поле текста для глобальных мульти последовательностей',
   width = 'Ширина',
   height = 'Высота',
   g2_restart = 'Требуется перезапуск что вкл/выкл эти источники',
@@ -97,6 +100,7 @@ i18n.locales.ru = {
   s_general_stats  = 'Записать специальную статистику в текстовый источник',
   s_browser_refresh = 'Обновлять браузер каждые 15 минут',
   s_render_delay = 'Выставить сверхзначение задержки отображения',
+  sh_checkbox = 'Показать/Скрыть ',
 }
 --~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~wwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwww
 -- id - obs keyboard id , c - character , cs - character with shift pressed
@@ -162,7 +166,7 @@ ffi = require "ffi" -- for native libs and C code access
 jit = require "jit" -- for C thread callback behavior change
 bit = require "bit" -- binary logic
 
-local function try_load_library(alias, name)
+function try_load_library(alias, name)
   if ffi.os == "OSX" then name = name .. ".0.dylib" end
   ok, _G[alias] = pcall(ffi.load, name)
   if not ok then 
@@ -1245,6 +1249,35 @@ function SourceDef:get_properties()
   .. " ] -  -  -  -  -  -  -  -  -  -    +"
   obs_properties_add_button(props, "button2", s, viewer)
   obs_properties_add_bool(props, "_autorun", i18n"auto_run")
+
+  local group_config = obs_properties_create()
+  local pt1 = obs_properties_add_bool(group_config, "t1", i18n"p_text_area2")
+  obs_property_set_modified_callback(pt1, function(props, prop, set)
+    local flag = obs_data_get_bool(set,"t1")
+    obs_property_set_visible(obs_properties_get(props,"_action"), flag)
+  return true end)
+
+  local pt2 = obs_properties_add_bool(group_config, "t2", i18n"_snippets")
+  obs_property_set_modified_callback(pt2, function(props, prop, set)
+    local flag = obs_data_get_bool(set,"t2")
+    obs_property_set_visible(obs_properties_get(props,"_groupextra"), flag)
+  return true end)
+
+  local pt3 = obs_properties_add_bool(group_config, "t3", i18n"p_group_name")
+  obs_property_set_modified_callback(pt3, function(props, prop, set)
+    local flag = obs_data_get_bool(set,"t3")
+    obs_property_set_visible(obs_properties_get(props,"_group"), flag)
+  return true end)
+
+  local g1 = obs_properties_add_group(props, "_group_config", i18n"sh_checkbox", OBS_GROUP_CHECKABLE, group_config)
+
+  obs_property_set_modified_callback(g1, function(props, prop, set)
+    local flag = obs_data_get_bool(set,"_group_config")
+    obs_property_set_visible(obs_properties_get(props, "t1") , flag)
+    obs_property_set_visible(obs_properties_get(props, "t2") , flag)
+    obs_property_set_visible(obs_properties_get(props, "t3") , flag)
+  return true end)
+
   local text_area2 = obs_properties_add_text(props, "_action", "", OBS_TEXT_MULTILINE)
   obs_property_text_set_monospace(text_area2, true)
   local snippets = obs_properties_create()
@@ -1333,6 +1366,9 @@ function SourceDef:_reg_htk(settings)
   local parent = obs_filter_get_parent(self.filter)
   local source_name = obs_source_get_name(parent)
   local filter_name = obs_source_get_name(self.filter)
+  -- sets filter state off when starting and creating from UI due to bug with selection
+  -- OBS may hang when selecting a sceneitem and moving it when it has filter enabled.
+  obs_source_set_enabled(self.filter, false)
   if parent and source_name and filter_name then
     self.hotkeys["0;" .. source_name .. ";" .. filter_name] = function()
       self.hotkey_dispatch = true
