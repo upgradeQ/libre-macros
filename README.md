@@ -1,5 +1,5 @@
 # Description 
-**obs-libre-macros** is an Extension for OBS Studio built on top of its scripting facilities,
+**libre-macros** is an Extension for OBS Studio built on top of its scripting facilities,
 utilising built-in embedded LuaJIT interpreter, filter UI and function environment from Lua 5.1
 
 # Features 
@@ -408,4 +408,4 @@ Contributions are welcome! You might take a look into source code for translatio
 <img src="https://www.gnu.org/graphics/agplv3-with-text-162x68.png" align="right" />
 </a>
 
-The **obs-libre-macros** is free software: you can redistribute it and/or modify it under the terms of the GNU Affero General Public License as published by the Free Software Foundation, either version 3 of the License, or (at your option) any later version. That means that IF users interacting with it remotely(through a network) - they are entitled to source code. And if it is **not** modified, then you can direct them [here](https://github.com/upgradeQ/obs-libre-macros), but if you had **modified** it, you simply have to publish your modifications. The easiest way to do this is to have a public Github repository of your fork or create a PR upstream. Otherwise, you will be in violation of the license. The relevant part of the license is under section 13 of the AGPLv3.  
+The **libre-macros** is free software: you can redistribute it and/or modify it under the terms of the GNU Affero General Public License as published by the Free Software Foundation, either version 3 of the License, or (at your option) any later version. That means that IF users interacting with it remotely(through a network) - they are entitled to source code. And if it is **not** modified, then you can direct them [here](https://github.com/upgradeQ/obs-libre-macros), but if you had **modified** it, you simply have to publish your modifications. The easiest way to do this is to have a public Github repository of your fork or create a PR upstream. Otherwise, you will be in violation of the license. The relevant part of the license is under section 13 of the AGPLv3.  
