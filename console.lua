@@ -1,25 +1,19 @@
-copyleft = [[
-obs-libre-macros - scripting and macros hotkeys in OBS Studio for Humans
-Contact/URL https://www.github.com/upgradeQ/obs-libre-macros
-Copyright (C) 2021-2022 upgradeQ
-
-This program is free software: you can redistribute it and/or modify
-it under the terms of the GNU Affero General Public License as
-published by the Free Software Foundation, either version 3 of the
-License, or (at your option) any later version.
-
-This program is distributed in the hope that it will be useful,
-but WITHOUT ANY WARRANTY; without even the implied warranty of
-MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-GNU Affero General Public License for more details.
-
-You should have received a copy of the GNU Affero General Public License
-along with this program.  If not, see <https://www.gnu.org/licenses/>.
+--[[
+libre-macros - Scripting and macros hotkeys overhaul for OBS Studio
+Contact/URL https://www.github.com/upgradeQ/libre-macros
+Copyright (C) 2021-2024 upgradeQ
+Distributed under AGPL license <https://spdx.org/licenses/AGPL-3.0-or-later.html>
 ]]
-print(copyleft)
-_ver = "3.3.0"
-_tested = ("OBS 28.1.1 64bit extension version %s"):format(_ver)
-
+_ver = "4.0.0"
+print('[+] libre-macros https://www.github.com/upgradeQ/libre-macros' .. ' ' .. _ver)
+--~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~BOOKMARKSwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwww
+-- localization - below
+-- bk_imports - all imported modules 
+-- bk_obs_api_interactions_functions - global general purpose functions - preloaded
+-- bk_console_instance_functions - t. == self. ; local functions for Console instance
+-- bk_console_snippets_code - snippets to get you started with Console
+-- bk_obs_source_definition - scripted source: UI, hotkeys, event loop
+-- bk_obs_script_definition - registration of scripted sources and UI
 --~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~wwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwww
 -- https://stackoverflow.com/a/8891620 by kikito
 local i18n = { locales = {} }
@@ -53,6 +47,7 @@ i18n.locales.en = {
   p2 = 'Path 2',
   p_group_name = 'Settings for interval use',
   p_text_area2 = 'Text area for global multi action pipes',
+  p_dx_screenshot = 'Enable texture reading',
   width = 'Width',
   height = 'Height',
   g2_restart = 'Restart required to enable/disable this sources',
@@ -84,6 +79,7 @@ i18n.locales.ru = {
   p2 = 'Путь 2',
   p_group_name = 'Внутренние настройки',
   p_text_area2 = 'Поле текста для глобальных мульти последовательностей',
+  p_dx_screenshot = 'Включить чтение текстуры',
   width = 'Ширина',
   height = 'Высота',
   g2_restart = 'Требуется перезапуск что вкл/выкл эти источники',
@@ -156,7 +152,7 @@ qwerty_minimal_keyboard_layout = {
   {id ="OBS_KEY_Y", c="y", cs="Y"},
   {id ="OBS_KEY_Z", c="z", cs="Z"},
 }
---~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~wwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwww
+--bk_imports~~~~~~~~~~~~~~~~~~~~~~~~~~wwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwww
 local function open_package(ns)
   for n, v in pairs(ns) do _G[n] = v end
 end
@@ -165,6 +161,8 @@ open_package(obslua)
 ffi = require "ffi" -- for native libs and C code access
 jit = require "jit" -- for C thread callback behavior change
 bit = require "bit" -- binary logic
+
+local C = ffi.C
 
 function try_load_library(alias, name)
   if ffi.os == "OSX" then name = name .. ".0.dylib" end
@@ -178,7 +176,7 @@ try_load_library("obsffi", "obs")
 --try_load_library("frontendC", "frontend-api")
 --try_load_library("openglC", "opengl")
 --try_load_library("scriptingC", "scripting")
---~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~wwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwww
+--bk_obs_api_interactions_functions~~~~~~wwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwww
 local Timer = {}
 function Timer:new(o)
   o = o or {}
@@ -212,8 +210,6 @@ function sleep(s)
   action:launch()
 end
 --~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~wwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwww
--- global general purpose functions -  preloaded
-
 function sname(source) return obs_source_get_name(source) end
 
 return_source_name = sname
@@ -568,13 +564,160 @@ function click_property(source, name)
   obs_properties_destroy(props)
 end
 
+
+ffi.cdef[[
+
+struct obs_source;
+struct obs_properties;
+struct obs_property;
+typedef struct obs_source obs_source_t;
+typedef struct obs_properties obs_properties_t;
+typedef struct obs_property obs_property_t;
+
+obs_source_t *obs_get_source_by_name(const char *name);
+obs_source_t *obs_source_get_filter_by_name(obs_source_t *source, const char *name);
+obs_properties_t *obs_source_properties(const obs_source_t *source);
+obs_property_t *obs_properties_first(obs_properties_t *props);
+bool obs_property_button_clicked(obs_property_t *p, void *obj);
+
+bool obs_property_next(obs_property_t **p);
+
+const char *obs_property_name(obs_property_t *p);
+void obs_properties_destroy(obs_properties_t *props);
+void obs_source_release(obs_source_t *source);
+
+]]
+
+function click_property_filter_ffi(source, filter_name, prop_name)
+  local source_name = return_source_name(source)
+  local source = obsffi.obs_get_source_by_name(source_name)
+  if source then
+    local fSource = obsffi.obs_source_get_filter_by_name(source, filter_name)
+    if fSource then
+      local props = obsffi.obs_source_properties(fSource)
+      if props then
+        local prop = obsffi.obs_properties_first(props)
+        local name = obsffi.obs_property_name(prop)
+        if name then
+          local _p = ffi.new("obs_property_t *[1]", prop)
+          local foundProp = obsffi.obs_property_next(_p)
+          prop = ffi.new("obs_property_t *", _p[0])
+          while foundProp do
+            name = obsffi.obs_property_name(prop)
+            if ffi.string(name) == prop_name then
+              obsffi.obs_property_button_clicked(prop, fSource)
+            end
+            _p = ffi.new("obs_property_t *[1]", prop)
+            foundProp = obsffi.obs_property_next(_p)
+            prop = ffi.new("obs_property_t *", _p[0])
+          end
+        end
+        obsffi.obs_properties_destroy(props)
+      end
+      obsffi.obs_source_release(fSource)
+    end
+    obsffi.obs_source_release(source)
+  end
+end
+
+--bk_console_instance_functions~~~~~~~~~~wwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwww
 -- setfenv functions with nonlocal variable t(instance)
+-- tables creation in utils.some_table is prohibited! Use instance.some_table in SourceDef
 utils = {}
+
+function utils.dx_screenshot(source_name)
+  if not t.created_dx_ctx then return end
+  obs_enter_graphics()
+  local my_source = obs_get_source_by_name(source_name)
+  local cx, cy = MAX_SIDE_W, MAX_SIDE_H
+  local s_w = obs_source_get_width(my_source)
+  local s_h = obs_source_get_height(my_source)
+  obsffi.gs_texrender_reset(t.texture_a)
+  if my_source and obsffi.gs_texrender_begin(t.texture_a, cx, cy) then
+    gs_matrix_scale3f(cx/s_w, cy/s_h, 1.0)
+    gs_clear(t.clear_flags, t.texture_clear_color, 0, 0)
+    gs_ortho(0.0, cx, 0.0, cy, -100.0, 100.0)
+    obs_source_inc_showing(my_source)
+    obs_source_video_render(my_source)
+    obs_source_dec_showing(my_source)
+    obsffi.gs_texrender_end(t.texture_a)
+  end
+  t._tex = obsffi.gs_texture_get_obj(obsffi.gs_texrender_get_texture(t.texture_a))
+  t.mapped_subresource = c_tex2d_mapped_new{}
+  t.p_mapped_subres = c_void_p(t.mapped_subresource)
+  t.CopyResource(t.pContext, t.stage, t._tex)
+  local x = t.Map(t.pContext, t.stage, 0, C.D3D11_MAP_READ, 0, t.p_mapped_subres)--print(x)--0x00000000 ok
+  t.p_mapped_subres = c_tex2d_mapped_p(t.p_mapped_subres)--print(tostring(t.p_mapped_subres.RowPitch))
+  ffi.copy(t.raw_image, t.p_mapped_subres.pData, MAX_LEN)
+  t.Unmap(t.pContext, t.stage, 0)
+  obs_source_release(my_source)
+  obs_leave_graphics()
+end
+
+function utils._set_stash(filter_name)
+  local settings;
+  local result = obs_source_enum_filters(source)
+  for _, f in pairs(result) do
+    if return_source_name(f) == filter_name then
+      settings = obs_source_get_settings(f)
+    end
+  end
+  source_list_release(result)
+  -- obs_data_get_json_pretty_with_defaults
+  t._json_settings[filter_name] = obs_data_get_json(settings)
+  obs_data_release(settings) 
+end
+
+function utils._grab_stash(filter_name)
+  local result = obs_source_enum_filters(source)
+  for _, f in pairs(result) do
+    if return_source_name(f) == filter_name then
+      set_settings3(source, filter_name, t._json_settings[filter_name])
+    end
+  end
+  source_list_release(result)
+end
+
+function utils.stash(filter_name)
+  if t._stash_ready then _grab_stash(filter_name) end
+  if not t._stash_ready then
+    _set_stash(filter_name)
+    t._stash_ready = true
+  end
+end
+
+function utils.get_duration()
+  return obs_source_media_get_duration(source)
+end
+
+function utils.get_timing()
+  return obs_source_media_get_time(source)
+end
+
+function utils._play_once(a, b)
+  local done = false
+  obs_source_media_set_time(source, a)
+  sleep(0)
+  repeat
+    if not (obs_source_media_get_time(source) >= b) then
+      sleep(0)
+    else
+      done = true
+    end
+  until done
+  return(0)
+end
+
+function utils.play_once(a, b)
+  _play_once(0, 0)
+  repeat sleep(0) until _play_once(a, b) == 0
+  _play_once(0, 0)
+end
 
 function utils.res_defer(item)
   local id = tostring(item.res)
 
-  for k,v in pairs(t._res_defer) do 
+  for k, v in pairs(t._res_defer) do 
     if v.created == id then 
       return 
     end
@@ -724,17 +867,17 @@ function utils.resize_outer_gaps(size)
 end
 
 function utils.add_gap(opts)
-  -- add_gap {x=300,y=500, width = 100, height = 100}
+  -- add_gap {x=300, y=500, width = 100, height = 100}
   if not t.__scene then  -- otherwise its crashes
     t.__scene = obs_scene_from_source(source)
   end
-  local gap,settings = get_gap_source({w=opts.width, h=opts.height, n="_unnamed_gap"});
+  local gap, settings = get_gap_source({w=opts.width, h=opts.height, n="_unnamed_gap"});
   local item = obs_scene_add(t.__scene, gap); __c(gap, settings)
   local pos = vec2(); pos.x, pos.y = opts.x, opts.y
   obs_sceneitem_set_pos(item, pos)
 end
 
---~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~wwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwww
+--bk_console_snippets_code~~~~~~~~~~~~~~~~wwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwww
 SNIPPETS = {} -- { name = string value}
 SNIPPETS.s_general_stats = [===[
 
@@ -991,7 +1134,7 @@ repeat sleep(0.3)
   tick_script_update()
   obs_stats_tick()
   local info_stats = ''
-  for k,v in pairs(s) do info_stats = info_stats .. ("[%s] [%s] \n"):format(k,v) end
+  for k, v in pairs(s) do info_stats = info_stats .. ("[%s] [%s] \n"):format(k, v) end
   local function update_text(source, text) local settings = obs_data_create() obs_data_set_string(settings, "text", text)
     obs_source_update(source, settings) obs_data_release(settings) end
   update_text(source, info_stats)
@@ -1019,7 +1162,7 @@ function watch_duration()
 end
 repeat sleep(0)
   if t.pressed then set_loop() end
-  if t.pressed2 then loop.start,loop._end = nil,nil end
+  if t.pressed2 then loop.start, loop._end = nil, nil end
   watch_duration()
 until false
 
@@ -1028,7 +1171,7 @@ until false
 SNIPPETS.s_on_off_sceneitem = [==[
 
 local name = ""
-local scene_item = get_scene_sceneitem(return_source_name(source),name)
+local scene_item = get_scene_sceneitem(return_source_name(source), name)
 repeat sleep(2.5)
   local boolean = not obs_sceneitem_visible(scene_item)
   obs_sceneitem_set_visible(scene_item, boolean)
@@ -1075,13 +1218,13 @@ local function executor(ctx, code, loc, name) -- args defined automatically  as 
   local custom_env52  = {}
   setmetatable(custom_env52, {__index = _G})
   custom_env52.source = obs_filter_get_parent(ctx.filter)
-  loc = loc or "exec" -- special locaition address if python sript is present
+  loc = loc or "exec" -- special location address if the python script is present
   name = name or "obs repl"
   custom_env52.t = ctx
   code = code or custom_env52.t.code
-  for k,v in pairs(utils) do custom_env52[k] = setfenv(v,custom_env52) end
+  for k, v in pairs(utils) do custom_env52[k] = setfenv(v, custom_env52) end
   local exec = assert(load(CODE_STORAGE_INIT .. code, name, "t", custom_env52))
-  -- executor submits code to event loop, which will execute it with .resume
+  -- executor submits code to the event loop, which will execute it with .resume
   ctx[loc] = run(exec)
 end
 
@@ -1098,7 +1241,7 @@ end
 local function viewer()
   error(">Script Log")
 end
---~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~wwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwww
+--bk_obs_source_definition~~~~~~~~~~~~~~~wwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwww
 local SourceDef = {}
 
 function SourceDef:new(o)
@@ -1126,6 +1269,8 @@ function SourceDef:create(source)
   instance.pressed3 = false
   instance.created_hotkeys = false
 
+  instance.created_dx_ctx = false
+
   instance.button_dispatch = false
   instance.preload = true
   instance.hotkey_dispatch = false
@@ -1142,6 +1287,8 @@ function SourceDef:create(source)
   instance.on_deactivate_task = init()
 
   instance._res_defer = {} -- { {res = some_resource, defer = some_cleanup_callback, created = id }, ...}
+  instance._json_settings = {}
+  instance._stash_ready = false
 
   if obs_source_get_unversioned_id(source):find("timer") then 
     SourceDef._set_timer_loop(instance)
@@ -1151,8 +1298,14 @@ function SourceDef:create(source)
 end
 
 function SourceDef:destroy()
-  for k,v in pairs(self._res_defer) do
+  for k, v in pairs(self._res_defer) do
     v.defer(v.res)
+  end
+  if self.created_dx_ctx then
+    obs_enter_graphics()
+    self.Release_pContext(self.pContext) -- should automatically clear all resources created with it
+    obsffi.gs_texrender_destroy(self.texture_a)
+    obs_leave_graphics()
   end
 end
 
@@ -1165,17 +1318,21 @@ function SourceDef:update(settings)
   self.hotreload = obs_data_get_string(settings, "_hotreload")
   self.p1 = obs_data_get_string(settings, "_p1")
   self.p2 = obs_data_get_string(settings, "_p2")
+  self.expect_dx = obs_data_get_bool(settings, "t4")
   self.snippet_name = obs_data_get_string(settings, "_snippet_name")
 
   if not self.created_hotkeys then
     SourceDef._reg_htk(self, settings)
   end
+  if self.expect_dx and (not self.created_dx_ctx) then
+    SourceDef._create_dx_ctx(self)
+  end
 end
 
 function SourceDef:_event_loop(seconds)
-  -- button restarts code on click 
-  -- actions and external python do same
-  -- hotkey waits until execution has finished
+  -- button restarts code on a click 
+  -- actions and external python code does the same
+  -- hotkey trigger waits until execution has finished
 
   if self.button_dispatch then
     coroutine.resume(self.exec, seconds)
@@ -1206,7 +1363,7 @@ function SourceDef:_event_loop(seconds)
       self["on_"..i.."_do"]()
     end
   end
-  -- poll for changes in global shared table for all console sources
+  -- poll for changes in the global shared table for all of console sources
   for name, num_code in pairs(SUB) do
     if num_code == _OFFER and self.pipe_name == name then
       self.actions_dispatch = true
@@ -1250,32 +1407,36 @@ function SourceDef:get_properties()
   obs_properties_add_button(props, "button2", s, viewer)
   obs_properties_add_bool(props, "_autorun", i18n"auto_run")
 
+  -- Show/Hide properties, allows for different customization of each source
   local group_config = obs_properties_create()
   local pt1 = obs_properties_add_bool(group_config, "t1", i18n"p_text_area2")
   obs_property_set_modified_callback(pt1, function(props, prop, set)
-    local flag = obs_data_get_bool(set,"t1")
-    obs_property_set_visible(obs_properties_get(props,"_action"), flag)
+    local flag = obs_data_get_bool(set, "t1")
+    obs_property_set_visible(obs_properties_get(props, "_action"), flag)
   return true end)
 
   local pt2 = obs_properties_add_bool(group_config, "t2", i18n"_snippets")
   obs_property_set_modified_callback(pt2, function(props, prop, set)
-    local flag = obs_data_get_bool(set,"t2")
-    obs_property_set_visible(obs_properties_get(props,"_groupextra"), flag)
+    local flag = obs_data_get_bool(set, "t2")
+    obs_property_set_visible(obs_properties_get(props, "_groupextra"), flag)
   return true end)
 
   local pt3 = obs_properties_add_bool(group_config, "t3", i18n"p_group_name")
   obs_property_set_modified_callback(pt3, function(props, prop, set)
-    local flag = obs_data_get_bool(set,"t3")
-    obs_property_set_visible(obs_properties_get(props,"_group"), flag)
+    local flag = obs_data_get_bool(set, "t3")
+    obs_property_set_visible(obs_properties_get(props, "_group"), flag)
   return true end)
+
+  local pt4 = obs_properties_add_bool(group_config, "t4", i18n"p_dx_screenshot")
 
   local g1 = obs_properties_add_group(props, "_group_config", i18n"sh_checkbox", OBS_GROUP_CHECKABLE, group_config)
 
   obs_property_set_modified_callback(g1, function(props, prop, set)
-    local flag = obs_data_get_bool(set,"_group_config")
+    local flag = obs_data_get_bool(set, "_group_config")
     obs_property_set_visible(obs_properties_get(props, "t1") , flag)
     obs_property_set_visible(obs_properties_get(props, "t2") , flag)
     obs_property_set_visible(obs_properties_get(props, "t3") , flag)
+    obs_property_set_visible(obs_properties_get(props, "t4") , flag)
   return true end)
 
   local text_area2 = obs_properties_add_text(props, "_action", "", OBS_TEXT_MULTILINE)
@@ -1367,7 +1528,7 @@ function SourceDef:_reg_htk(settings)
   local source_name = obs_source_get_name(parent)
   local filter_name = obs_source_get_name(self.filter)
   -- sets filter state off when starting and creating from UI due to bug with selection
-  -- OBS may hang when selecting a sceneitem and moving it when it has filter enabled.
+  -- OBS may hang when selecting a sceneitem and moving it, when it has filter enabled
   obs_source_set_enabled(self.filter, false)
   if parent and source_name and filter_name then
     self.hotkeys["0;" .. source_name .. ";" .. filter_name] = function()
@@ -1421,6 +1582,326 @@ function SourceDef:_reg_htk(settings)
   end
 end
 
+if ffi.os == 'Windows' then 
+ffi.cdef[[
+void *gs_get_device_obj(void);
+
+struct d3ddeviceVTBL {
+  void *QueryInterface; // void *fns[43]; // alternative representation
+  void *AddRef;
+  void *Release;
+  void *CreateBuffer;
+  void *CreateTexture1D;
+  void *CreateTexture2D;
+  void *CreateTexture3D;
+  void *CreateShaderResourceView;
+  void *CreateUnorderedAccessView;
+  void *CreateRenderTargetView;
+  void *CreateDepthStencilView;
+  void *CreateInputLayout;
+  void *CreateVertexShader;
+  void *CreateGeometryShader;
+  void *CreateGeometryShaderWithStreamOutput;
+  void *CreatePixelShader;
+  void *CreateHullShader;
+  void *CreateDomainShader;
+  void *CreateComputeShader;
+  void *CreateClassLinkage;
+  void *CreateBlendState;
+  void *CreateDepthStencilState;
+  void *CreateRasterizerState;
+  void *CreateSamplerState;
+  void *CreateQuery;
+  void *CreatePredicate;
+  void *CreateCounter;
+  void *CreateDeferredContext;
+  void *OpenSharedResource;
+  void *CheckFormatSupport;
+  void *CheckMultisampleQualityLevels;
+  void *CheckCounterInfo;
+  void *CheckCounter;
+  void *CheckFeatureSupport;
+  void *GetPrivateData;
+  void *SetPrivateData;
+  void *SetPrivateDataInterface;
+  void *GetFeatureLevel;
+  void *GetCreationFlags;
+  void *GetDeviceRemovedReason;
+  void *GetImmediateContext;
+  void *SetExceptionMode;
+  void *GetExceptionMode;
+};
+struct d3ddevice {
+  struct d3ddeviceVTBL** lpVtbl;
+};
+
+struct d3ddevicecontextVTBL {
+  void *QueryInterface;
+  void *Addref;
+  void *Release;
+  void *GetDevice;
+  void *GetPrivateData;
+  void *SetPrivateData;
+  void *SetPrivateDataInterface;
+  void *VSSetConstantBuffers;
+  void *PSSetShaderResources;
+  void *PSSetShader;
+  void *SetSamplers;
+  void *SetShader;
+  void *DrawIndexed;
+  void *Draw;
+  void *Map;
+  void *Unmap;
+  void *PSSetConstantBuffer;
+  void *IASetInputLayout;
+  void *IASetVertexBuffers;
+  void *IASetIndexBuffer;
+  void *DrawIndexedInstanced;
+  void *DrawInstanced;
+  void *GSSetConstantBuffers;
+  void *GSSetShader;
+  void *IASetPrimitiveTopology;
+  void *VSSetShaderResources;
+  void *VSSetSamplers;
+  void *Begin;
+  void *End;
+  void *GetData;
+  void *GSSetPredication;
+  void *GSSetShaderResources;
+  void *GSSetSamplers;
+  void *OMSetRenderTargets;
+  void *OMSetRenderTargetsAndUnorderedAccessViews;
+  void *OMSetBlendState;
+  void *OMSetDepthStencilState;
+  void *SOSetTargets;
+  void *DrawAuto;
+  void *DrawIndexedInstancedIndirect;
+  void *DrawInstancedIndirect;
+  void *Dispatch;
+  void *DispatchIndirect;
+  void *RSSetState;
+  void *RSSetViewports;
+  void *RSSetScissorRects;
+  void *CopySubresourceRegion;
+  void *CopyResource;
+  void *UpdateSubresource;
+  void *CopyStructureCount;
+  void *ClearRenderTargetView;
+  void *ClearUnorderedAccessViewUint;
+  void *ClearUnorderedAccessViewFloat;
+  void *ClearDepthStencilView;
+  void *GenerateMips;
+  void *SetResourceMinLOD;
+  void *GetResourceMinLOD;
+  void *ResolveSubresource;
+  void *ExecuteCommandList;
+  void *HSSetShaderResources;
+  void *HSSetShader;
+  void *HSSetSamplers;
+  void *HSSetConstantBuffers;
+  void *DSSetShaderResources;
+  void *DSSetShader;
+  void *DSSetSamplers;
+  void *DSSetConstantBuffers;
+  void *DSSetShaderResources;
+  void *CSSetUnorderedAccessViews;
+  void *CSSetShader;
+  void *CSSetSamplers;
+  void *CSSetConstantBuffers;
+  void *VSGetConstantBuffers;
+  void *PSGetShaderResources;
+  void *PSGetShader;
+  void *PSGetSamplers;
+  void *VSGetShader;
+  void *PSGetConstantBuffers;
+  void *IAGetInputLayout;
+  void *IAGetVertexBuffers;
+  void *IAGetIndexBuffer;
+  void *GSGetConstantBuffers;
+  void *GSGetShader;
+  void *IAGetPrimitiveTopology;
+  void *VSGetShaderResources;
+  void *VSGetSamplers;
+  void *GetPredication;
+  void *GSGetShaderResources;
+  void *GSGetSamplers;
+  void *OMGetRenderTargets;
+  void *OMGetRenderTargetsAndUnorderedAccessViews;
+  void *OMGetBlendState;
+  void *OMGetDepthStencilState;
+  void *SOGetTargets;
+  void *RSGetState;
+  void *RSGetViewports;
+  void *RSGetScissorRects;
+  void *HSGetShaderResources;
+  void *HSGetShader;
+  void *HSGetSamplers;
+  void *HSGetConstantBuffers;
+  void *DSGetShaderResources;
+  void *DSGetShader;
+  void *DSGetSamplers;
+  void *DSGetConstantBuffers;
+  void *CSGetShaderResources;
+  void *CSGetUnorderedAccessViews;
+  void *CSGetShader;
+  void *CSGetSamplers;
+  void *CSGetConstantBuffers;
+  void *ClearState;
+  void *Flush;
+  void *GetType;
+  void *GetContextFlags;
+  void *FinishCommandList;
+};
+
+struct d3ddevicecontext {
+  struct d3ddevicecontextVTBL** lpVtbl;
+};
+
+struct d3d11tex2dVTBL {
+  void *QueryInterface;
+  void *Addref;
+  void *Release;
+  void *GetDevice;
+  void *GetPrivateData;
+  void *SetPrivateData;
+  void *SetPrivateDataInterface;
+  void *GetType;
+  void *SetEvictionPriority;
+  void *GetEvictionPriority;
+  void *GetDesc;
+};
+
+struct d3d11tex2d {
+ struct d3d11tex2dVTBL** lpVtbl;
+};
+
+typedef unsigned int UINT;
+
+typedef struct DXGI_SAMPLE_DESC
+{
+  int Count;
+  int Quality;
+} DXGI_SAMPLE_DESC;
+
+typedef enum D3D11_USAGE {
+  D3D11_USAGE_DEFAULT = 0,
+  D3D11_USAGE_IMMUTABLE = 1,
+  D3D11_USAGE_DYNAMIC = 2,
+  D3D11_USAGE_STAGING = 3
+} D3D11_USAGE ;
+
+typedef enum D3D11_MAP {
+  D3D11_MAP_READ = 1,
+  D3D11_MAP_WRITE = 2,
+  D3D11_MAP_READ_WRITE = 3,
+  D3D11_MAP_WRITE_DISCARD = 4,
+  D3D11_MAP_WRITE_NO_OVERWRITE = 5
+} D3D11_MAP;
+
+typedef struct D3D11_MAPPED_SUBRESOURCE {
+  void *pData;
+  UINT RowPitch, DepthPitch;
+} D3D11_MAPPED_SUBRESOURCE;
+
+typedef enum D3D11_CPU_ACCESS_FLAG {
+    D3D11_CPU_ACCESS_WRITE = 0x10000,
+    D3D11_CPU_ACCESS_READ = 0x20000
+} D3D11_CPU_ACCESS_FLAG;
+
+typedef struct D3D11_TEXTURE2D_DESC {
+  UINT Width;
+  UINT Height;
+  UINT MipLevels;
+  UINT ArraySize;
+  UINT Format; //DXGI_FORMAT Format; // big enum list, but not needed...
+  DXGI_SAMPLE_DESC SampleDesc;
+  D3D11_USAGE Usage;
+  UINT BindFlags;
+  UINT CPUAccessFlags;
+  UINT MiscFlags;
+} D3D11_TEXTURE2D_DESC;
+
+typedef struct gs_texture gs_texture_t;
+void *gs_texture_get_obj(gs_texture_t *tex);
+typedef struct gs_texture_render gs_texrender_t;
+gs_texrender_t *gs_texrender_create(int format, int zsformat);
+void gs_texrender_destroy(gs_texrender_t *texrender);
+void gs_texrender_reset(gs_texrender_t *texrender);
+gs_texture_t *gs_texrender_get_texture(const gs_texrender_t *texrender);
+bool gs_texrender_begin(gs_texrender_t *texrender, uint32_t cx, uint32_t cy);
+void gs_texrender_end(gs_texrender_t *texrender);
+]]
+end
+
+function SourceDef:_create_dx_ctx() 
+  if not (ffi.os == 'Windows') then return end -- emulation support??
+  if self.created_dx_ctx then return end
+  obs_enter_graphics()
+  self.texture_a = obsffi.gs_texrender_create(GS_RGBA, GS_ZS_NONE)  -- random texture
+  self.texture_clear_color = vec4()
+  self.clear_flags = bit.bor(GS_CLEAR_COLOR)
+  local effect_solid = obs_get_base_effect(OBS_EFFECT_SOLID)
+  MAX_SIDE_W = 512
+  MAX_SIDE_H = 288
+  MAX_LEN = MAX_SIDE_W * MAX_SIDE_H * 4
+  if obsffi.gs_texrender_begin(self.texture_a, MAX_SIDE_W, MAX_SIDE_H) then
+    while gs_effect_loop(effect_solid, "Random") do
+      gs_draw_sprite(nil, 0, MAX_SIDE_W, MAX_SIDE_H)
+    end
+    obsffi.gs_texrender_end(self.texture_a)
+  end
+  self.raw_image = ffi.new("uint8_t[?]", MAX_LEN)
+  -- usefull globals
+  c_void_p = ffi.typeof("void*")
+  c_void_pp = ffi.typeof("void**")
+  c_u8_p = ffi.typeof("uint8_t*")
+  c_tex2d_new = ffi.typeof("struct d3d11tex2d[1]")
+  c_tex2d_p = ffi.typeof("struct d3d11tex2d*")
+  c_tex2d_desk_new = ffi.typeof("D3D11_TEXTURE2D_DESC[1]")
+  c_tex2d_desk_p = ffi.typeof("D3D11_TEXTURE2D_DESC*")
+  c_tex2d_mapped_p = ffi.typeof("D3D11_MAPPED_SUBRESOURCE*")
+  c_tex2d_mapped_new = ffi.typeof("D3D11_MAPPED_SUBRESOURCE[1]")
+
+  self._tex = obsffi.gs_texture_get_obj(obsffi.gs_texrender_get_texture(self.texture_a))
+  self.p_tex = c_tex2d_p(self._tex)
+  self.GetDesc = ffi.cast("void (__stdcall*)(void*, void**)", self.p_tex.lpVtbl[10])
+  self._desk = c_tex2d_desk_new{}
+  self.p_desk = ffi.cast(c_void_pp, self._desk)
+  self.GetDesc(self.p_tex, self.p_desk)
+
+  self.desc_stage = c_tex2d_desk_p(self._desk)
+  self.desc_stage.Usage = C.D3D11_USAGE_STAGING
+  self.desc_stage.CPUAccessFlags = C.D3D11_CPU_ACCESS_READ
+  self.desc_stage.BindFlags = 0
+  self.desc_stage.Width = MAX_SIDE_W
+  self.desc_stage.Height = MAX_SIDE_H
+  self.desc_stage.MiscFlags = 0
+
+  self._device = obsffi.gs_get_device_obj()
+  self.pDevice = ffi.cast("struct d3ddevice*", self._device)
+  self.GetImmediateContext = ffi.cast("long (__stdcall*)(void*, void**)", self.pDevice.lpVtbl[40])
+
+  self._arg1 = ffi.new("unsigned long[1]", {})
+  self._pContext = ffi.cast(c_void_pp, self._arg1)
+  self.GetImmediateContext(self.pDevice, self._pContext)
+  self.pContext = ffi.cast("struct d3ddevicecontext*", self._pContext[0])
+
+  self.Release_pContext = ffi.cast("unsigned long (__stdcall*)(void*)", self.pContext.lpVtbl[2])
+  self.CopyResource = ffi.cast("void (__stdcall*)(void*, void*, void* )", self.pContext.lpVtbl[47])
+  self.Map = ffi.cast("long (__stdcall*)(void*, void*, UINT, UINT, UINT, void *)", self.pContext.lpVtbl[14])
+  self.Unmap = ffi.cast("long (__stdcall*)(void*, void*, UINT)", self.pContext.lpVtbl[15])
+  self.CreateTexture2D = ffi.cast("long (__stdcall*)(void*, void*, void*, void**)", self.pDevice.lpVtbl[5])
+
+  -- create texture
+  self._my_tex = c_tex2d_new{}
+  self.p_stage_tex = ffi.cast(c_void_pp, self._my_tex)
+  self.CreateTexture2D(self.pDevice, self.desc_stage, nil, self.p_stage_tex)
+  -- create staging surface, care: p_stage_tex[0]
+  self.stage = c_tex2d_p(self.p_stage_tex[0])
+  obs_leave_graphics()
+  self.created_dx_ctx = true
+end
+
 
 --~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~wwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwww
 as_custom_source = SourceDef:new({
@@ -1428,7 +1909,7 @@ as_custom_source = SourceDef:new({
   type = OBS_SOURCE_TYPE_SOURCE,
   output_flags = bit.bor(OBS_SOURCE_VIDEO, OBS_SOURCE_CUSTOM_DRAW, OBS_SOURCE_AUDIO),
 })
-function as_custom_source:get_name() return "AGPLv3+ obs-libre-macros by upgradeQ" end
+function as_custom_source:get_name() return "AGPLv3+ libre-macros by upgradeQ" end
 function as_custom_source:video_render(settings) end
 function as_custom_source:get_height() return 200 end
 function as_custom_source:get_width() return 200 end
@@ -1515,10 +1996,15 @@ function as_gap_source:get_width() return self.width end
 as_gap_source.id = "_gap_source"
 as_gap_source.type = OBS_SOURCE_TYPE_SOURCE
 as_gap_source.output_flags = bit.bor(OBS_SOURCE_VIDEO, OBS_SOURCE_CUSTOM_DRAW)
---~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~wwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwww
-function script_description()
-  return copyleft:sub(1, 168) .. '\nTested on: ' .. _tested ..
-  '\nReleased under GNU Affero General Public License, AGPLv3+'
+
+--bk_obs_script_definition~~~~~~~~~~~~~~~wwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwww
+function script_description() return [[
+<h2> Scripting and macros hotkeys overhaul for OBS Studio </h2>
+<a style="color: #0000ff; text-decoration: none; font-size:26px;"
+href="https://www.github.com/upgradeQ/libre-macros/blob/master/README.md">Visit the repository README.md</a><br/>
+Copyright &copy; 2021-2024 upgradeQ<br/>
+Distributed under <a style="color: #ffffff; text-decoration: none;"> AGPL license</a>
+]]
 end
 
 function script_properties()
@@ -1527,7 +2013,7 @@ function script_properties()
   obs_properties_add_bool(props_group1, "_flag_custom", i18n"Console sceneitem custom")
   obs_properties_add_bool(props_group1, "_flag_gap", i18n"Gap source")
   obs_properties_add_bool(props_group1, "_flag_console_timer", i18n"Console (Timer)")
-  obs_properties_add_float(props_group1, "_interval",i18n"interval",0,999,0.001)
+  obs_properties_add_float(props_group1, "_interval", i18n"interval", 0, 999, 0.001)
   obs_properties_add_group(props, "group1", i18n"g2_restart", OBS_GROUP_NORMAL, props_group1)
   local _langs = obs_properties_add_list(props, "_lang", i18n"select_lang", OBS_COMBO_TYPE_LIST, OBS_COMBO_FORMAT_STRING)
 
@@ -1540,7 +2026,7 @@ end
 
 function script_defaults(settings)
   obs_data_set_default_string(settings, "_lang", "en")
-  obs_data_set_default_double(settings, "_interval",60)
+  obs_data_set_default_double(settings, "_interval", 60)
 end
 
 function script_load(settings)

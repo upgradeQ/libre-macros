@@ -5,10 +5,7 @@ utilising built-in embedded LuaJIT interpreter, filter UI and function environme
 # Features 
 - Attach `Console` to **any** source in real-time
 - **Auto run** code when OBS starts, **load from file**, **Hot reload** expressions
-- Hotkeys support for each `Console` instance.
-- Integration with 3-rd party plugins and scripts via `obs_data_json_settings` e.g:
-  - [move transition](https://github.com/exeldro/obs-move-transition) - latest versions include `audio move filter` which monitors source volume level
-  - [websocket](https://github.com/Palakis/obs-websocket) - control obs through WebSockets
+- Hotkeys support for each `Console` instance
 - Less boilerplate: an environment provided with already defined namespace and useful functions
   - `source` - access source reference unique to each `Console` instance
   - `t.pressed` - access hotkey state
@@ -19,21 +16,19 @@ utilising built-in embedded LuaJIT interpreter, filter UI and function environme
   - Send, pause, resume, switch, recompile `Console` instances via GLOBAL(per OBS Studio instance) multi actions pipes
   - Read and write private data, execute Python from Lua, and Lua from Python
   - Create hollow gaps 
-- Crossplatform, works offline, supports two languages for UI English and Russian
-```diff
-+Browser source keyboard and mouse interaction+
-```
+  - Browser source keyboard and mouse interaction
+  - and more... Check out this README for examples
 
 # Installation 
-- Download [source code](https://github.com/upgradeQ/obs-libre-macros/archive/master.zip), unpack/unzip.
+- Download [source code](https://github.com/upgradeQ/obs-libre-macros/archive/master.zip), unpack/unzip
 - Add `console.lua` to OBS Studio via Tools > Scripts > "+" button
 ---
 # Usage 
 
-- Left click on any source, add `Console` filter to it.
-- Open `Script Log` to view `Console` output.
-- Type some code into the text area.
-- Press `Execute!`.
+- Left click on any source, add `Console` filter to it
+- Open `Script Log` to view `Console` output
+- Type some code into the text area
+- Press `Execute!`
 
 Each Console instance has it's own namespace `t` and custom environment,
 you can access source which Console is attached to. e.g:
@@ -41,11 +36,11 @@ you can access source which Console is attached to. e.g:
 print(obs_source_get_name(source)) 
 ```
 To access global the state of script do it via `_G`, when you write x = 5,
-only that instance of `Console` will have it.
+only that instance of `Console` will have it
 
 # Auto run
 If you check `Auto run` then code from this console will be executed automatically 
-when OBS starts.
+when OBS starts
 
 # Loading from file 
 To load from file you need first select which one to load from properties,
@@ -60,8 +55,9 @@ There are 2 types of hotkeys:
  - First, can be found in settings with prefixed `0;` - it will execute code in text area
  - Second, prefixed with `1;`, `2;`, `3;` - it will mutate `t.pressed`, `t.pressed2`, `t.pressed3` states
 
-# Examples
-High frequency blinking source:  
+# EXAMPLES & USAGE
+
+# High frequency blinking source:  
 - [x] Auto run
 ```lua
 while true do 
@@ -72,7 +68,7 @@ obs_source_set_enabled(source, false)
 end
 ```
 
-Print source name while holding hotkey:
+# Print source name while holding hotkey:
 ```lua
 repeat
 sleep(0.1)
@@ -80,7 +76,37 @@ if t.pressed then print_source_name(source) end
 until false 
 ```
 
-Hot reload with delay:
+# Push-to-talk release delay, set hotkey for `1;` of Audio Input source 
+```lua
+repeat
+  sleep(0.0)
+  if t.pressed 
+    then obs_source_set_volume(source,0.5)
+  else 
+    sleep(0.8) obs_source_set_volume(source,0.0)
+  end 
+until false 
+```
+# Play media segments, get the current time (in milliseconds) of the media with `get_timing()`, length - `get_duration()`
+```lua
+repeat
+  play_once(21012,23528)
+  play_once(13012,15528)
+  play_once(40012,43528)
+  play_once(33012,37528)
+until false
+```
+# Raw image ffi screenshot of any source as 512x288px, scaled
+Windows, DirectX only. Bindings written for `gs_texture_get_obj` and `gs_get_device_obj`. Note, may hit FPS, check stats 
+```lua
+dx_screenshot "Scene 2"
+local img = c_u8_p(t.raw_image)
+local n = MAX_LEN
+print(table.concat({img[0], img[1], img[2], img[3]}, ' '))
+print(table.concat({img[n-4], img[n-3], img[n-2], img[n-1]}, ' '))
+```
+
+# Hot reload with delay:
 ```lua
 print('restarted') -- expression print_source_name(source)
 local delay = 0.5
@@ -92,7 +118,8 @@ if not success then print(result) end
 sleep(delay)
 end
 ```
-Shake a text source and update its text based on location from scene (using code from [wiki](https://github.com/obsproject/obs-studio/wiki/Scripting-Tutorial-Source-Shake))
+# Shake a text source and update its text based on location from scene  
+(using code from [wiki](https://github.com/obsproject/obs-studio/wiki/Scripting-Tutorial-Source-Shake))
 Paste into `Console` or load from file this code:
 ```lua
 local source_name = obs_source_get_name(source)
@@ -120,6 +147,22 @@ repeat
 until false
 ```
 
+# Permanent storage in private source settings
+```lua
+settings1 = obs_source_get_private_settings(source)
+obs_data_set_int(settings1,"__private__", 7)
+obs_apply_private_data(settings1)
+obs_data_release(settings1)
+```
+Those settings are global for a source, e.g in the next Console filter
+```lua
+settings2 = obs_source_get_private_settings(source)
+local xc = obs_data_get_int(settings2,"__private__")
+print(xc)
+obs_data_release(settings2)
+```
+
+# Tasks 
 Print a source name every second while also print current filters attached to
 source in `t.tasks`, shutdown this task after 10 seconds
 
@@ -152,6 +195,7 @@ sleep(1)
 print_source_name(source)
 until false
 ```
+# Internal settings redirection
 Using [move-transition plugin](https://obsproject.com/forum/resources/move-transition.913/) with its move-audio filter, redirect to `t.mv2`, then show value of `t.mv2` in `Script Log`
 ```lua
 repeat 
@@ -160,19 +204,19 @@ print(t.mv2)
 until false
 ```
 
-Start virtual camera as a triggered named callback:
+# Start virtual camera as a triggered named callback:
 
 ```lua
 local description = 'OBSBasic.StartVirtualCam'
 trigger_from_hotkey_callback(description)
 ```
 
-Send hotkey combination to OBS:
+# Send hotkey combination to OBS:
 ```lua
 send_hotkey('OBS_KEY_2', {shift=true})
 ```
 
-Hook state of right and left mouse buttons:
+# Hook state of right and left mouse buttons:
 ```lua
 hook_mouse_buttons()
 repeat 
@@ -182,7 +226,7 @@ print(tostring(RMB))
 until false
 ```
 
-Access sceneitem from scene:
+# Access sceneitem from scene:
 ```lua
 local sceneitem = get_scene_sceneitem("Scene 2", sname(source))
 repeat 
@@ -300,7 +344,7 @@ print('on show exit')
 ```
 ## Run multiactions
 ### Example
-`Console` instance with this entries in first and second text area.
+`Console` instance with this entries in first and second text area
 ```lua
 okay("pipe1")
 print('exposing pipe 1')
@@ -364,8 +408,17 @@ local my_json_string = [==[
 ]==]
 set_settings3(source, "Color Correction", my_json_string)
 ```
+
+# Save filter settings and restore them
+```lua
+stash "Retro Effects"
+```
+Click `Execute!` to save filter state of settings into the stash, Click again to restore it
+Duplicate `Console` filter if you want another stash
+Note: Built-in filters work differently and you may want to press `Defaults` first, then restore from stash
+
 # Useful functions
-Also read source to know exactly how they work in section which defines general purpose functions.
+Also read source to know exactly how they work in section which defines general purpose functions
 
 `execute(command_line, current_directory)` - executes command line command without console blinking WINDOWS ONLY
 Example:
@@ -379,29 +432,34 @@ error('done') else error('not done') end
 `sname(source)` - returns source name as string
 
 `sceneitem = get_scene_sceneitem(scene_name, scene_item_name)`
+
+`click_property(source, property_name)` - This will refresh browser source `click_property(source, "refreshnocache")`
+
+`click_property_filter_ffi(source, filter_name, prop_name)` - This will press `Execute!` button `click_property_filter_ffi(source, "Console", "button1")`
+
 # Notes on exceptions 
 There might be exceptions in your code, it is recommended to add `print('start')` and `print('end')` statements to debug code in `Console`
 
 # Snippets
  * `On/off sceneitem every 2.5 seconds` - source must be a scene
  * `Loop media source between start and end via hotkey` - adds two hotkeys to set and clear loop (`1;` and `2;`)
- * `Write internal stats to text source` - based on [`OBS-Stats-on-Stream`](https://github.com/GreenComfyTea/OBS-Stats-on-Stream)
+ * `Write internal stats to text source` - based on [`OBS-Stats-on-Stream`](https://github.com/GreenComfyTea/OBS-Stats-on-Stream) use FreeType2 for it, it's more efficient
  * `Update browser every 15 minutes`
  * `Overwrite maximum render delay limit`
 
 # Contribute
 Contributions are welcome! You might take a look into source code for translation of UI to your language.
+Any contribution that is done will include your given name under the credits section.
 
 # On the Roadmap 
-- Hook keyboard events, hook mouse position for winapi and x11 using cdefs (using community packages)
-- Add more functions to control & interact with browser source
-- Add more snippets
-- Port and test on 32-bit, add advanced versioning, make it forward compatible
+- Add more stuff to control & interact with browser source
+- Add snippets and examples
+- Add common functions and more usefull FFI code
 
 # See also 
-* [pure Lua custom shader loader ](https://github.com/ps0ares/CustomShaders)
+* Source code to read - https://github.com/upgradeQ/libre-macros/blob/master/console.lua
 * Advanced scene switcher [plugin](https://github.com/WarmUpTill/SceneSwitcher)
-* [Examples & Cheatsheet (python)](https://github.com/upgradeQ/OBS-Studio-Python-Scripting-Cheatsheet-obspython-Examples-of-API)
+* [Examples & Cheatsheet (python)](https://github.com/upgradeQ/Streaming-Software-Scripting-Reference)
 
 # License
 <a href="https://www.gnu.org/licenses/agpl-3.0.en.html">
