@@ -1,10 +1,10 @@
 --[[
 libre-macros - Scripting and macros hotkeys overhaul for OBS Studio
 Contact/URL https://www.github.com/upgradeQ/libre-macros
-Copyright (C) 2021-2024 upgradeQ
+Copyright (C) 2021-2025 upgradeQ
 Distributed under AGPL license <https://spdx.org/licenses/AGPL-3.0-or-later.html>
 ]]
-_ver = "4.0.0"
+_ver = "4.1.0"
 print('[+] libre-macros https://www.github.com/upgradeQ/libre-macros' .. ' ' .. _ver)
 --~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~BOOKMARKSwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwww
 -- localization - below
@@ -50,12 +50,12 @@ i18n.locales.en = {
   p_dx_screenshot = 'Enable texture reading',
   width = 'Width',
   height = 'Height',
-  g2_restart = 'Restart required to enable/disable this sources',
+  g2_restart = 'Restart required to enable/disable features                                           ', -- padding
   ['Console (Timer)'] = 'Console (Timer)',
-  ['Console sceneitem custom'] = 'Console sceneitem custom',
+  ['Console sceneitem custom'] = 'Console sceneitem custom source',
   ['Gap source'] = 'Gap source',
   ['Console'] = 'Console',
-  interval = 'Timer interval per second',
+  interval = 'Console (Timer) interval per second',
   _snippets ='Snippets',
   _snip_select ='Select snippet',
   _snip_confirm ='Confirm',
@@ -65,6 +65,7 @@ i18n.locales.en = {
   s_browser_refresh = 'Update browser every 15 minutes',
   s_render_delay = 'Overwrite maximum render delay limit',
   sh_checkbox = 'Show/Hide ',
+  s_patch_err = '[patch] ERROR in console.lua',
 }
 
 i18n.locales.ru = {
@@ -82,12 +83,12 @@ i18n.locales.ru = {
   p_dx_screenshot = 'Включить чтение текстуры',
   width = 'Ширина',
   height = 'Высота',
-  g2_restart = 'Требуется перезапуск что вкл/выкл эти источники',
+  g2_restart = 'Требуется перезапуск чтобы вкл/выкл функции                                           ',
   ['Console (Timer)'] = 'Консоль (Таймер)',
-  ['Console sceneitem custom'] = 'Консоль специальный предмет сцены',
+  ['Console sceneitem custom'] = 'Консоль специальный предмет (источник) сцены',
   ['Gap source'] = 'Пустой источник',
   ['Console'] = 'Консоль',
-  interval = 'Интервал таймера раз в секунду',
+  interval = 'Консоль (Таймер) интервал раз в секунду',
   _snippets ='Сниппеты',
   _snip_select ='Выбрать сниппет',
   _snip_confirm ='Подтвердить',
@@ -97,6 +98,7 @@ i18n.locales.ru = {
   s_browser_refresh = 'Обновлять браузер каждые 15 минут',
   s_render_delay = 'Выставить сверхзначение задержки отображения',
   sh_checkbox = 'Показать/Скрыть ',
+  s_patch_err = '[патч] ОШИБКА в console.lua',
 }
 --~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~wwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwww
 -- id - obs keyboard id , c - character , cs - character with shift pressed
@@ -176,6 +178,7 @@ try_load_library("obsffi", "obs")
 --try_load_library("frontendC", "frontend-api")
 --try_load_library("openglC", "opengl")
 --try_load_library("scriptingC", "scripting")
+
 --bk_obs_api_interactions_functions~~~~~~wwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwww
 local Timer = {}
 function Timer:new(o)
@@ -258,6 +261,19 @@ function print_settings2(source, filter_name)
   source_list_release(result)
 end
 
+function print_settings_new(source)
+  local settings = obs_source_get_settings(source)
+  local psettings = obs_source_get_private_settings(source)
+  print("[---------- settings ----------")
+  print(obs_data_get_json_pretty_with_defaults(settings))
+  print("---------- private_settings ----------")
+  print(obs_data_get_json_pretty_with_defaults(psettings))
+  print(("----------%s----------]"):format(return_source_name(source)))
+  for _, s in pairs { settings, psettings}
+    do obs_data_release(s) 
+  end
+end
+
 
 function set_settings2(source, filter_name, opts)
   local result = obs_source_enum_filters(source)
@@ -287,6 +303,13 @@ end
 function set_settings4(source, json_string)
   local settings = obs_data_create_from_json(json_string)
   obs_source_update(f, settings)
+  obs_data_release(settings)
+end
+
+function set_settings52(source, opts)
+  local settings = obs_source_get_settings(source)
+  _G[("obs_data_set_%s"):format(opts._type)](settings, opts._field, opts._value)
+  obs_source_update(source, settings)
   obs_data_release(settings)
 end
 
@@ -620,10 +643,75 @@ function click_property_filter_ffi(source, filter_name, prop_name)
   end
 end
 
+_js_patch_loaded = false
+
+function patch_bs_js() if not _js_patch_loaded then -- begin patch_bs_js 
+
+local C, ffi_new, ffi_copy, ffi_cast = ffi.C, ffi.new, ffi.copy, ffi.cast
+ffi.cdef[[
+int VirtualProtect(uintptr_t, unsigned long, unsigned long, unsigned long *);
+uint64_t GetModuleHandleA(const char*);
+enum { PAGE_READWRITE = 0x04 };
+]]
+local offset = 0x96B60 + 0x40 --circa late 2024 - early 2025 ~31.0.0 
+
+local function virtual_protect(address, size, new_protect)
+  local old_protect = ffi_new("unsigned long[1]")
+  address = ffi_cast("uintptr_t", address)
+  C.VirtualProtect(address, size, new_protect, old_protect)
+  return old_protect[0]
+end
+
+local function post_load_cb()
+  local sources = obs_enum_sources()
+  if sources ~= nil then
+    for _, source in ipairs(sources) do
+      local source_id = obs_source_get_unversioned_id(source)
+      if source_id == "browser_source" then
+        local settings = obs_source_get_settings(source)
+        obs_data_set_string(settings, "css", tostring(os.time()))
+        obs_source_update(source, settings)
+        obs_data_release(settings)
+      end
+    end
+  end
+  source_list_release(sources)
+  remove_current_callback()
+end
+
+local function patch_preloaded_js()
+  local js_code = "window.addEventListener('m',e=>eval(e.detail.k));//"
+  local len = #js_code
+  local buffer = ffi_new("char[?]", len)
+  ffi_copy(buffer, js_code)
+  local address = ffi_cast("void*", C.GetModuleHandleA("obs-browser.dll") + offset)
+  local old_protection = virtual_protect(address, len, C.PAGE_READWRITE)
+  ffi_copy(address, buffer, len)
+  virtual_protect(address, len, old_protection)
+end
+
+patch_preloaded_js()
+timer_add(post_load_cb, 1500)
+print('[+] patch_bs_js activated')
+end _js_patch_loaded = true
+end -- end patch_bs_js
+
 --bk_console_instance_functions~~~~~~~~~~wwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwww
 -- setfenv functions with nonlocal variable t(instance)
 -- tables creation in utils.some_table is prohibited! Use instance.some_table in SourceDef
 utils = {}
+
+function utils.send_js(code_str)
+  local json = obs_data_create()
+  obs_data_set_string(json, "k", code_str)
+  local cd = calldata_create()
+  local ph = obs_source_get_proc_handler(source)
+  calldata_set_string(cd, "eventName", "m")
+  calldata_set_string(cd, "jsonString", obs_data_get_json(json))
+  obs_data_release(json)
+  proc_handler_call(ph, "javascript_event", cd)
+  calldata_destroy(cd)
+end
 
 function utils.dx_screenshot(source_name)
   if not t.created_dx_ctx then return end
@@ -1276,6 +1364,7 @@ function SourceDef:create(source)
   instance.hotkey_dispatch = false
   instance.actions_dispatch = false
   instance.is_action_paused = false
+  instance.external_dispatch = false
 
   instance.tasks = {}
   instance.exec = init()
@@ -1294,6 +1383,7 @@ function SourceDef:create(source)
     SourceDef._set_timer_loop(instance)
   end
   SourceDef.update(instance, self) -- self = settings
+  executor(instance) -- preload coroutines to start when hotkey or external 
   return instance
 end
 
@@ -1318,6 +1408,10 @@ function SourceDef:update(settings)
   self.hotreload = obs_data_get_string(settings, "_hotreload")
   self.p1 = obs_data_get_string(settings, "_p1")
   self.p2 = obs_data_get_string(settings, "_p2")
+  self.external_dispatch = obs_data_get_bool(settings, "_external_dispatch")
+  if self.external_dispatch then
+    executor(self)
+  end
   self.expect_dx = obs_data_get_bool(settings, "t4")
   self.snippet_name = obs_data_get_string(settings, "_snippet_name")
 
@@ -1335,21 +1429,41 @@ function SourceDef:_event_loop(seconds)
   -- hotkey trigger waits until execution has finished
 
   if self.button_dispatch then
-    coroutine.resume(self.exec, seconds)
-    if coroutine.status(self.exec) == "dead" then self.button_dispatch = false end
+    coroutine.resume(self.exec, seconds) -- begin/continue execution; yields, obslua API code is not suspendable 
+    if coroutine.status(self.exec) == "dead" then 
+      self.button_dispatch = false 
+      executor(self) -- preparing for hotkey_dispatch or external_dispatch 
+      goto end_of_manual_triggers
+    end
 
   elseif self.hotkey_dispatch then
+    coroutine.resume(self.exec, seconds)
     if coroutine.status(self.exec) == "dead" then
       executor(self)
       self.hotkey_dispatch = false
-    else
-      coroutine.resume(self.exec, seconds)
+      goto end_of_manual_triggers
     end
 
-  elseif self.autorun and not self.button_dispatch then
-    if self.preload then self.preload = false; executor(self) end
+  elseif self.external_dispatch then
     coroutine.resume(self.exec, seconds)
+    if coroutine.status(self.exec) == "dead" then
+      executor(self)
+      local settings = obs_source_get_settings(self.filter)
+      obs_data_set_bool(settings, "_external_dispatch", false)
+      obs_source_update(self.filter, settings)
+      obs_data_release(settings)
+      goto end_of_manual_triggers
+    end
+
+  elseif self.autorun then
+    if self.preload then 
+      self.preload = false
+      executor(self)
+    end
+    coroutine.resume(self.exec, seconds)
+
   end
+  ::end_of_manual_triggers::
 
   for _, coro in pairs(self.tasks) do
     coroutine.resume(coro, seconds)
@@ -1460,12 +1574,14 @@ function SourceDef:get_properties()
   obs_properties_add_group(props, "_groupextra", i18n"_snippets", OBS_GROUP_NORMAL, snippets)
 
   local group_props = obs_properties_create()
-  local _mv1, _mv2, _hotreload, _p1, _p2;
+  local _mv1, _mv2, _hotreload, _p1, _p2, _external_dispatch_p;
   _mv1 = obs_properties_add_float_slider(group_props, "_mv1", i18n"s_mv1", 0, 1, 0.01)
   _mv2 = obs_properties_add_int_slider(group_props, "_mv2", i18n"s_mv2", 0, 100, 1)
   _hotreload = obs_properties_add_text(group_props, "_hotreload", i18n"hotreload", OBS_TEXT_DEFAULT)
   _p1 = obs_properties_add_path(group_props, "_p1", i18n"p1", OBS_PATH_FILE, "*.lua", script_path())
   _p2 = obs_properties_add_path(group_props, "_p2", i18n"p2", OBS_PATH_FILE, "*.lua", script_path())
+  _external_dispatch_p = obs_properties_add_bool(group_props, "_external_dispatch", "__private_do_not_use")
+  obs_property_set_visible(_external_dispatch_p,false)
   obs_properties_add_group(props, "_group", i18n"p_group_name", OBS_GROUP_NORMAL, group_props)
 
   return props
@@ -1923,6 +2039,10 @@ function as_custom_source:update(settings)
   self.hotreload = obs_data_get_string(settings, "_hotreload")
   self.p1 = obs_data_get_string(settings, "_p1")
   self.p2 = obs_data_get_string(settings, "_p2")
+  self.external_dispatch = obs_data_get_bool(settings, "_external_dispatch")
+  if self.external_dispatch then
+    executor(self)
+  end
 -- custom source logic for registering hotkeys
   if not self.created_hotkeys then
     as_custom_source._reg_htk(self, settings)
@@ -2002,7 +2122,7 @@ function script_description() return [[
 <h2> Scripting and macros hotkeys overhaul for OBS Studio </h2>
 <a style="color: #0000ff; text-decoration: none; font-size:26px;"
 href="https://www.github.com/upgradeQ/libre-macros/blob/master/README.md">Visit the repository README.md</a><br/>
-Copyright &copy; 2021-2024 upgradeQ<br/>
+Copyright &copy; 2021-2025 upgradeQ<br/>
 Distributed under <a style="color: #ffffff; text-decoration: none;"> AGPL license</a>
 ]]
 end
@@ -2013,7 +2133,9 @@ function script_properties()
   obs_properties_add_bool(props_group1, "_flag_custom", i18n"Console sceneitem custom")
   obs_properties_add_bool(props_group1, "_flag_gap", i18n"Gap source")
   obs_properties_add_bool(props_group1, "_flag_console_timer", i18n"Console (Timer)")
-  obs_properties_add_float(props_group1, "_interval", i18n"interval", 0, 999, 0.001)
+  local p_suffix = obs_properties_add_float(props_group1, "_interval", "", 0, 999, 0.001)
+  obs_property_float_set_suffix(p_suffix," "  .. i18n"interval")
+  obs_properties_add_text(props_group1, "_patches", "", OBS_TEXT_MULTILINE)
   obs_properties_add_group(props, "group1", i18n"g2_restart", OBS_GROUP_NORMAL, props_group1)
   local _langs = obs_properties_add_list(props, "_lang", i18n"select_lang", OBS_COMBO_TYPE_LIST, OBS_COMBO_FORMAT_STRING)
 
@@ -2026,11 +2148,19 @@ end
 
 function script_defaults(settings)
   obs_data_set_default_string(settings, "_lang", "en")
+  obs_data_set_default_string(settings, "_patches", "-- here goes your GLOBAL code\n")
   obs_data_set_default_double(settings, "_interval", 60)
 end
 
 function script_load(settings)
+
+  local run = load(obs_data_get_string(settings, "_patches"), "global patches", "t")
+  local ok, _ = pcall(run)
+  if not ok then 
+    print('[+]' .. i18n"s_patch_err") 
+  end
   i18n.set_locale(obs_data_get_string(settings, "_lang")) -- must load first
+
   local as_video_filter = SourceDef:new({id = "v_console_source", type = OBS_SOURCE_TYPE_FILTER, output_flags = bit.bor(OBS_SOURCE_VIDEO),})
   obs_register_source(as_video_filter)
 

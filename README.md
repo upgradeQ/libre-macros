@@ -4,7 +4,6 @@ utilising built-in embedded LuaJIT interpreter, filter UI and function environme
 
 # Features 
 - Attach `Console` to **any** source in real-time
-- **Auto run** code when OBS starts, **load from file**, **Hot reload** expressions
 - Hotkeys support for each `Console` instance
 - Less boilerplate: an environment provided with already defined namespace and useful functions
   - `source` - access source reference unique to each `Console` instance
@@ -12,12 +11,18 @@ utilising built-in embedded LuaJIT interpreter, filter UI and function environme
   - `sleep(seconds)` - command to pause execution
   - `t.tasks` - asynchronous event loop
   - `obsffi` - accessed via `obsffi` - native linked library
-  - View and change **all** settings for source, and for filter in that source 
-  - Send, pause, resume, switch, recompile `Console` instances via GLOBAL(per OBS Studio instance) multi actions pipes
-  - Read and write private data, execute Python from Lua, and Lua from Python
-  - Create hollow gaps 
-  - Browser source keyboard and mouse interaction
-  - and more... Check out this README for examples
+  - `t.raw_image` - D3D11_MAPPED_SUBRESOURCE, see example below
+  - `bk_obs_api_interactions_functions` - more code to interact with OS and OBS API see source
+- Patches: run code that is GLOBAL and before registering all of `Console` instance sources
+- Browser source interaction:
+  - real keyboard and mouse interaction
+  - snippet for auto refresh 
+  - patch to inject and run arbitrary javascript without browser refreshing `Win64`
+- Send, pause, resume, switch, recompile `Console` instances via GLOBAL(per OBS Studio instance) multi actions pipes
+- Read and write private data, execute Python from Lua, and Lua from Python
+- `obs-websockets` interaction support to run any code or execute existing one
+- **Auto run** code when OBS starts, **load from file**, **Hot reload** expressions
+- Create hollow gaps sources
 
 # Installation 
 - Download [source code](https://github.com/upgradeQ/obs-libre-macros/archive/master.zip), unpack/unzip
@@ -55,8 +60,6 @@ There are 2 types of hotkeys:
  - First, can be found in settings with prefixed `0;` - it will execute code in text area
  - Second, prefixed with `1;`, `2;`, `3;` - it will mutate `t.pressed`, `t.pressed2`, `t.pressed3` states
 
-# EXAMPLES & USAGE
-
 # High frequency blinking source:  
 - [x] Auto run
 ```lua
@@ -76,7 +79,8 @@ if t.pressed then print_source_name(source) end
 until false 
 ```
 
-# Push-to-talk release delay, set hotkey for `1;` of Audio Input source 
+# Push-to-talk release delay
+set hotkey for `1;` of Audio Input source 
 ```lua
 repeat
   sleep(0.0)
@@ -87,7 +91,8 @@ repeat
   end 
 until false 
 ```
-# Play media segments, get the current time (in milliseconds) of the media with `get_timing()`, length - `get_duration()`
+# Play media segments
+get the current time (in milliseconds) of the media with `get_timing()`, length - `get_duration()`
 ```lua
 repeat
   play_once(21012,23528)
@@ -96,8 +101,9 @@ repeat
   play_once(33012,37528)
 until false
 ```
-# Raw image ffi screenshot of any source as 512x288px, scaled
-Windows, DirectX only. Bindings written for `gs_texture_get_obj` and `gs_get_device_obj`. Note, may hit FPS, check stats 
+# Raw image ffi screenshots
+Get image data of any source as 512x288px, scaled. Enable it first in Show/Hide in properties.
+Windows, DirectX only. Bindings written for `gs_texture_get_obj` and `gs_get_device_obj`. May hit FPS, check stats 
 ```lua
 dx_screenshot "Scene 2"
 local img = c_u8_p(t.raw_image)
@@ -275,7 +281,7 @@ for i=12, 200, 6 do
 end
 until false
 ```
-Example gif - 2 consoles are sending mouse move events into browser sources:
+2 consoles are sending mouse move events into browser sources:
 ![gif](https://i.imgur.com/gI6LbRF.gif)
 Website link: <https://zennohelpers.github.io/Browser-Events-Testers/Mouse/Mouse.html?>
 
@@ -323,8 +329,27 @@ send_hotkey_tbs1(source, c2o('j'), true)
 send_hotkey_tbs2(source, 'q', false)
 send_hotkey_tbs2(source, 'й', false)
 ```
+## Send javascript 
+**WARNING** This will rewrite **all** CSS on **all** browser sources.
+`patch_bs_js()` must be written in the GLOBAL code config. Restart the program or reload the script, when adding new BS 
 
-## Execute python(must load helper script)
+```lua
+send_js "document.documentElement.style.filter='grayscale(100%)'"
+sleep(1.3)
+send_js [[document.documentElement.style.filter='invert(100%)']]
+sleep(0.8)
+send_js [==[
+document.body.innerHTML = `
+<style>body{margin:0;padding:0}canvas{position:absolute;top:50%;left:50%;transform:translate(-50%,-50%)}</style>
+<canvas id="cvs" width="100" height="100"></canvas> `;
+let r = Math.random;
+const c = document.getElementById('cvs').getContext('2d');
+c.beginPath();c.moveTo(50, 0);c.lineTo(0, 100);c.lineTo(100, 100);
+c.fillStyle=`rgb(${r()*256|0},${r()*256|0},${r()*256|0})`;c.fill();
+]==]
+```
+
+# Execute python(must load helper script)
 ```lua
 exec_py(
 [=[def print_hello():
@@ -334,7 +359,7 @@ exec_py(
 print_hello()
 ]=])
 ```
-## React on source signals
+# React on source signals
 ```lua
 register_on_show(function()
 print('on show')
@@ -342,8 +367,7 @@ sleep(3)
 print('on show exit')
  end)
 ```
-## Run multiactions
-### Example
+# Run multiactions
 `Console` instance with this entries in first and second text area
 ```lua
 okay("pipe1")
@@ -390,12 +414,12 @@ add_gap {x=300,y=500, width = 100, height = 100}
 
 # View and set settings
 - `print_settings(source)` - shows all settings
+- `print_settings_new(source)` - uses `obs_data_get_json_pretty_with_defaults` 
 - `print_settings2(source, filter_name)` - shows all settings for a filter on that source
-- `set_settings2(source, filter_name, opts)` - sets one settings
-- `set_settings3(source, filter_name, json_string)` - sets one settings
+- `set_settings2(source, filter_name, opts)` - sets one setting for filter of a source
+- `set_settings52(source,  opts)` - sets just one setting for a source
+- `set_settings3(source, filter_name, json_string)` - sets settings for a filter of a source
 - `set_settings4(source,  json_string)` - sets settings for source
-
-Examples: 
 
 ```lua
 set_settings2(source, "Color Correction", {_type ="double", _field= "gamma", _value= 0})
@@ -421,7 +445,6 @@ Note: Built-in filters work differently and you may want to press `Defaults` fir
 Also read source to know exactly how they work in section which defines general purpose functions
 
 `execute(command_line, current_directory)` - executes command line command without console blinking WINDOWS ONLY
-Example:
 ```lua
 if execute[["C:\full\path\to\python.exe" "C:\Users\YOUR_USERNAME\path\to\program.py" ]] then
 error('done') else error('not done') end
@@ -431,7 +454,7 @@ error('done') else error('not done') end
 
 `sname(source)` - returns source name as string
 
-`sceneitem = get_scene_sceneitem(scene_name, scene_item_name)`
+`sceneitem = get_scene_sceneitem(scene_name, scene_item_name)` - gets scene item object
 
 `click_property(source, property_name)` - This will refresh browser source `click_property(source, "refreshnocache")`
 
@@ -447,19 +470,11 @@ There might be exceptions in your code, it is recommended to add `print('start')
  * `Update browser every 15 minutes`
  * `Overwrite maximum render delay limit`
 
-# Contribute
-Contributions are welcome! You might take a look into source code for translation of UI to your language.
-Any contribution that is done will include your given name under the credits section.
-
-# On the Roadmap 
-- Add more stuff to control & interact with browser source
-- Add snippets and examples
-- Add common functions and more usefull FFI code
-
 # See also 
 * Source code to read - https://github.com/upgradeQ/libre-macros/blob/master/console.lua
 * Advanced scene switcher [plugin](https://github.com/WarmUpTill/SceneSwitcher)
 * [Examples & Cheatsheet (python)](https://github.com/upgradeQ/Streaming-Software-Scripting-Reference)
+* https://lua.org/  ,  https://luajit.org/
 
 # License
 <a href="https://www.gnu.org/licenses/agpl-3.0.en.html">
