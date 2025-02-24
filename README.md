@@ -43,6 +43,12 @@ print(obs_source_get_name(source))
 To access global the state of script do it via `_G`, when you write x = 5,
 only that instance of `Console` will have it
 
+## Notes on exceptions and backups
+There might be exceptions in your code, it is recommended to add `print('start')` and `print('end')` statements to debug code in `Console`
+Make a backup of your scene collection.
+You can rename the script name from `console.lua` to something else if crashing on start.
+
+---
 # Auto run
 If you check `Auto run` then code from this console will be executed automatically 
 when OBS starts
@@ -459,9 +465,6 @@ error('done') else error('not done') end
 `click_property(source, property_name)` - This will refresh browser source `click_property(source, "refreshnocache")`
 
 `click_property_filter_ffi(source, filter_name, prop_name)` - This will press `Execute!` button `click_property_filter_ffi(source, "Console", "button1")`
-
-# Notes on exceptions 
-There might be exceptions in your code, it is recommended to add `print('start')` and `print('end')` statements to debug code in `Console`
 
 # Snippets
  * `On/off sceneitem every 2.5 seconds` - source must be a scene

@@ -4,7 +4,7 @@ Contact/URL https://www.github.com/upgradeQ/libre-macros
 Copyright (C) 2021-2025 upgradeQ
 Distributed under AGPL license <https://spdx.org/licenses/AGPL-3.0-or-later.html>
 ]]
-_ver = "4.1.0"
+_ver = "4.1.1"
 print('[+] libre-macros https://www.github.com/upgradeQ/libre-macros' .. ' ' .. _ver)
 --~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~BOOKMARKSwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwww
 -- localization - below
@@ -2159,6 +2159,9 @@ function script_load(settings)
   if not ok then 
     print('[+]' .. i18n"s_patch_err") 
   end
+  local not_allowed_to_run_in_console_instance = function() error('[ERROR] must be in GLOBAL') end
+  _G.patch_bs_js = not_allowed_to_run_in_console_instance
+
   i18n.set_locale(obs_data_get_string(settings, "_lang")) -- must load first
 
   local as_video_filter = SourceDef:new({id = "v_console_source", type = OBS_SOURCE_TYPE_FILTER, output_flags = bit.bor(OBS_SOURCE_VIDEO),})
