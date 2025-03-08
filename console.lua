@@ -4,7 +4,7 @@ Contact/URL https://www.github.com/upgradeQ/libre-macros
 Copyright (C) 2021-2025 upgradeQ
 Distributed under AGPL license <https://spdx.org/licenses/AGPL-3.0-or-later.html>
 ]]
-_ver = "4.1.1"
+_ver = "4.1.2"
 print('[+] libre-macros https://www.github.com/upgradeQ/libre-macros' .. ' ' .. _ver)
 --~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~BOOKMARKSwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwww
 -- localization - below
@@ -416,6 +416,7 @@ function send_mouse_move_tbs(source, x, y, key_modifiers)
   obs_source_send_mouse_move(source, event, false) -- do not leave
 end
 
+-- depricated
 function send_mouse_wheel_tbs(source, x, y, x_delta, y_delta, key_modifiers)
   local event = obs_mouse_event()
   event.x = opts.x or 0
@@ -425,7 +426,6 @@ function send_mouse_wheel_tbs(source, x, y, x_delta, y_delta, key_modifiers)
   local y_delta = opts.y_delta or 0
   obs_source_send_mouse_wheel(source, event, x_delta, y_delta)
 end
-
 
 ffi.cdef[[
 typedef struct obs_hotkey obs_hotkey_t;
@@ -645,7 +645,7 @@ end
 
 _js_patch_loaded = false
 
-function patch_bs_js() if not _js_patch_loaded then -- begin patch_bs_js 
+function patch_bs_js(version_num) if not _js_patch_loaded then -- begin patch_bs_js 
 
 local C, ffi_new, ffi_copy, ffi_cast = ffi.C, ffi.new, ffi.copy, ffi.cast
 ffi.cdef[[
@@ -653,7 +653,12 @@ int VirtualProtect(uintptr_t, unsigned long, unsigned long, unsigned long *);
 uint64_t GetModuleHandleA(const char*);
 enum { PAGE_READWRITE = 0x04 };
 ]]
-local offset = 0x96B60 + 0x40 --circa late 2024 - early 2025 ~31.0.0 
+
+local offsets = {
+  0x96B60, --[1] circa late 2024 - early 2025 ~31.0.0 
+  0x9A130, --[2] 2025_03_08 - version 31.0.2
+}
+local offset = offsets[version_num or #offsets] + 0x40
 
 local function virtual_protect(address, size, new_protect)
   local old_protect = ffi_new("unsigned long[1]")
