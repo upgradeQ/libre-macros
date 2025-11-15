@@ -24,8 +24,8 @@ it works on all major versions of OBS Studio such as: 32, 28, 27
 
 
 # Installation 
-Download [source code](https://github.com/upgradeQ/obs-libre-macros/archive/master.zip), unpack/unzip
-Add `console.lua` to OBS Studio via Tools > Scripts > "+" button
+Download [source code](https://github.com/upgradeQ/obs-libre-macros/archive/master.zip), unpack/unzip<br/>
+Add `console.lua` to OBS Studio via Tools > Scripts > "+" button<br/>
 
 ---
 # Usage 
@@ -33,10 +33,10 @@ Add `console.lua` to OBS Studio via Tools > Scripts > "+" button
 > Make a backup of your scene collection.
 > You can rename the script name from `console.lua` to something else if crashing on start.
 
-Left click on any source, add `Console` filter to it
-Open `Script Log` to view `Console` output
-Type some code into the text area
-Press `Execute!`
+Left click on any source, add `Console` filter to it<br/>
+Open `Script Log` to view `Console` output<br/>
+Type some code into the text area<br/>
+Press `Execute!`<br/>
 Each Console instance has it's own namespace `t` and custom environment, you can access source which Console is attached to. e.g:
 ```lua
 print(obs_source_get_name(source)) 
@@ -49,8 +49,8 @@ To access global the state of script do it via `_G`, when you write x = 5, only 
 # Essential stuff
 
 ## hotkeys usage
-There are 2 types of hotkeys
-First, can be found in settings with prefixed `0;` - it will execute code in text area
+There are 2 types of hotkeys<br/>
+First, can be found in settings with prefixed `0;` - it will execute code in text area<br/>
 Second, prefixed with `1;`, `2;`, `3;` - it will mutate `t.pressed`, `t.pressed2`, `t.pressed3` states
 
 ## snippets
@@ -211,8 +211,8 @@ send_hotkey_tbs2(source, 'й', false)
 > This will rewrite **all** CSS on **all** browser sources.
 
 `patch_bs_js()` must be written in the GLOBAL code config.
-Restart the program or reload the script, when adding new browser source
-In version `4.1.2` `patch_bs_js(1)` accepts numerical index in the offsets table, defaults to last index when calling without arguments `patch_bs_js()`
+Restart the program or reload the script, when adding new browser source<br/>
+In version `4.1.2` `patch_bs_js(1)` accepts numerical index in the offsets table, defaults to last index when calling without arguments `patch_bs_js()`<br/>
 In version `4.2.0+` `patch_bs_js(999)` now performs a memory scan for the offset
 
 ```lua
