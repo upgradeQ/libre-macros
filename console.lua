@@ -4,7 +4,7 @@ Contact/URL https://www.github.com/upgradeQ/libre-macros
 Copyright (C) 2021-2025 upgradeQ
 Distributed under AGPL license <https://spdx.org/licenses/AGPL-3.0-or-later.html>
 ]]
-_ver = "4.1.2"
+_ver = "4.2.0"
 print('[+] libre-macros https://www.github.com/upgradeQ/libre-macros' .. ' ' .. _ver)
 --~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~BOOKMARKSwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwww
 -- localization - below
@@ -53,7 +53,6 @@ i18n.locales.en = {
   g2_restart = 'Restart required to enable/disable features                                           ', -- padding
   ['Console (Timer)'] = 'Console (Timer)',
   ['Console sceneitem custom'] = 'Console sceneitem custom source',
-  ['Gap source'] = 'Gap source',
   ['Console'] = 'Console',
   interval = 'Console (Timer) interval per second',
   _snippets ='Snippets',
@@ -61,7 +60,6 @@ i18n.locales.en = {
   _snip_confirm ='Confirm',
   s_on_off_sceneitem = 'On/off sceneitem every 2.5 seconds',
   s_loop_media  = 'Loop media source between start and end via hotkey',
-  s_general_stats  = 'Write internal stats to text source',
   s_browser_refresh = 'Update browser every 15 minutes',
   s_render_delay = 'Overwrite maximum render delay limit',
   sh_checkbox = 'Show/Hide ',
@@ -86,7 +84,6 @@ i18n.locales.ru = {
   g2_restart = 'Требуется перезапуск чтобы вкл/выкл функции                                           ',
   ['Console (Timer)'] = 'Консоль (Таймер)',
   ['Console sceneitem custom'] = 'Консоль специальный предмет (источник) сцены',
-  ['Gap source'] = 'Пустой источник',
   ['Console'] = 'Консоль',
   interval = 'Консоль (Таймер) интервал раз в секунду',
   _snippets ='Сниппеты',
@@ -94,7 +91,6 @@ i18n.locales.ru = {
   _snip_confirm ='Подтвердить',
   s_on_off_sceneitem = 'Вкл/выкл предмет сцены каждые 2.5 секунды',
   s_loop_media  = 'Повтор медиа источника через сочетание клавиш',
-  s_general_stats  = 'Записать специальную статистику в текстовый источник',
   s_browser_refresh = 'Обновлять браузер каждые 15 минут',
   s_render_delay = 'Выставить сверхзначение задержки отображения',
   sh_checkbox = 'Показать/Скрыть ',
@@ -576,7 +572,7 @@ int os_process_pipe_destroy(os_process_pipe_t *pp);
 ]]
 
 function pp_execute(cmd_line)
-   local pp = obsffi.os_process_pipe_create(cmd_line "r");
+   local pp = obsffi.os_process_pipe_create(cmd_line, "r");
    obsffi.os_process_pipe_destroy(pp)
 end
 
@@ -654,11 +650,37 @@ uint64_t GetModuleHandleA(const char*);
 enum { PAGE_READWRITE = 0x04 };
 ]]
 
+local function find_offset(start_addr, length, signature)
+  local ptr = ffi_cast("uint8_t*", start_addr)
+  local sig_len = #signature
+  for i = 0, length - sig_len do
+    local match = true
+    for j = 1, sig_len do
+        if ptr[i + j - 1] ~= string.byte(signature, j) then
+            match = false
+            break
+        end
+    end
+    if match then
+        return start_addr + i
+    end
+  end
+  error("No matching signature found at this range")
+end
+
 local offsets = {
   0x96B60, --[1] circa late 2024 - early 2025 ~31.0.0 
   0x9A130, --[2] 2025_03_08 - version 31.0.2
+  0x9A190, --[3] 2025_11_15 - version 32.0.0
 }
-local offset = offsets[version_num or #offsets] + 0x40
+local offset;
+if version_num ~= 999 then
+  offset = offsets[version_num or #offsets] + 0x40
+else
+  local start = C.GetModuleHandleA("obs-browser.dll")
+  offset = find_offset(start, 0x9FFFF, "const obsCSS =")
+  offset = (offset - start) + 0x40
+end
 
 local function virtual_protect(address, size, new_protect)
   local old_protect = ffi_new("unsigned long[1]")
@@ -861,381 +883,8 @@ function utils.register_on_deactivate(delayed_callback)
   end
 end
 
-function utils.get_gap_source(opts)
-  local gap, settings;
-  local w = opts.w 
-  local h = opts.h 
-  local n = opts.n
-  settings = obs_data_create()
-  obs_data_set_double(settings, "_width", w)
-  obs_data_set_double(settings, "_height", h)
-  gap = obs_source_create("_gap_source", n, settings, nil)
-  return gap, settings
-end
-
-function utils.__c(source, settings)
-  -- clear current context
-  obs_source_release(source)
-  obs_data_release(settings)
-end
-
-function utils.add_outer_gap(size)
-  size = size or 15
-  if not t.__scene then  -- otherwise its crashes
-    t.__scene = obs_scene_from_source(source)
-  end
-  local width = obs_source_get_base_width(source)
-  local height = obs_source_get_base_height(source)
-
-  local rgap, rsettings = get_gap_source({w=size, h=height, n="_right_gap"});
-  local lgap, lsettings = get_gap_source({w=size, h=height, n="_left_gap"});
-  local ugap, usettings = get_gap_source({w=width, h=size, n="_up_gap"});
-  local dgap, dsettings = get_gap_source({w=width, h=size, n="_down_gap"});
-  local rpos, lpos, upos, dpos = vec2(), vec2(), vec2(), vec2()
-  local r = obs_scene_add(t.__scene, rgap); __c(rgap, rsettings)
-  local l = obs_scene_add(t.__scene, lgap); __c(lgap, lsettings)
-  local u = obs_scene_add(t.__scene, ugap); __c(ugap, usettings)
-  local d = obs_scene_add(t.__scene, dgap); __c(dgap, dsettings)
-  lpos.x, lpos.y = 0, 0; obs_sceneitem_set_pos(l, lpos)
-  rpos.x, rpos.y = width - size, 0; obs_sceneitem_set_pos(r, rpos)
-  upos.x, upos.y = 0, 0; obs_sceneitem_set_pos(u, upos)
-  dpos.x, dpos.y = 0, height - size; obs_sceneitem_set_pos(d, dpos)
-end
-
-function utils.delete_all_gaps()
-  if not t.__scene then  -- otherwise its crashes
-    t.__scene = obs_scene_from_source(source)
-  end
-  local items = obs_scene_enum_items(t.__scene)
-  for _, i in pairs(items) do 
-    if obs_source_get_unversioned_id(obs_sceneitem_get_source(i)) == '_gap_source' then
-      obs_sceneitem_remove(i)
-    end
-  end
-  sceneitem_list_release(items)
-end
-
-function utils._update_gap_base(gs, opts)
-  local settings = obs_source_get_settings(gs)
-  obs_data_set_double(settings, "_width", opts.w)
-  obs_data_set_double(settings, "_height", opts.h)
-  obs_source_update(gs, settings)
-  obs_data_release(settings)
-end
-
-function utils._set_gap(gs, gi, size, width, height)
-  local pos = vec2()
-  local name = obs_source_get_name(gs)
-
-  if name == '_right_gap' then
-    _update_gap_base(gs, {w = size, h = height})
-    pos.x, pos.y = width - size, 0; obs_sceneitem_set_pos(gi, pos)
-  elseif name =='_left_gap' then
-    _update_gap_base(gs, {w = size, h = height})
-    pos.x, pos.y = 0, 0; obs_sceneitem_set_pos(gi, pos)
-  elseif name =='_up_gap' then
-    _update_gap_base(gs, {w = width, h = size})
-    pos.x, pos.y = 0, 0; obs_sceneitem_set_pos(gi, pos)
-  elseif name =='_down_gap' then
-    _update_gap_base(gs, {w = width, h = size})
-    pos.x, pos.y = 0, height - size; obs_sceneitem_set_pos(gi, pos)
-  end
-end
-
-function utils.resize_outer_gaps(size)
-  size = size or 15
-  if not t.__scene then  -- otherwise its crashes
-    t.__scene = obs_scene_from_source(source)
-  end
-  local items = obs_scene_enum_items(t.__scene)
-  local width = obs_source_get_base_width(source)
-  local height = obs_source_get_base_height(source)
-  for _, i in pairs(items) do 
-    local s = obs_sceneitem_get_source(i)
-    if obs_source_get_unversioned_id(s) == '_gap_source' then
-      _set_gap(s, i, size, width, height)
-    end
-  end
-  sceneitem_list_release(items)
-end
-
-function utils.add_gap(opts)
-  -- add_gap {x=300, y=500, width = 100, height = 100}
-  if not t.__scene then  -- otherwise its crashes
-    t.__scene = obs_scene_from_source(source)
-  end
-  local gap, settings = get_gap_source({w=opts.width, h=opts.height, n="_unnamed_gap"});
-  local item = obs_scene_add(t.__scene, gap); __c(gap, settings)
-  local pos = vec2(); pos.x, pos.y = opts.x, opts.y
-  obs_sceneitem_set_pos(item, pos)
-end
-
 --bk_console_snippets_code~~~~~~~~~~~~~~~~wwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwww
 SNIPPETS = {} -- { name = string value}
-SNIPPETS.s_general_stats = [===[
-
-ffi.cdef[[
-  struct video_output;
-  typedef struct video_output video_t;
-
-  struct os_cpu_usage_info;
-  typedef struct os_cpu_usage_info os_cpu_usage_info_t;
-
-  uint32_t video_output_get_skipped_frames(const video_t *video);
-  uint32_t video_output_get_total_frames(const video_t *video);
-  double video_output_get_frame_rate(const video_t *video);
-  
-  os_cpu_usage_info_t *os_cpu_usage_info_start(void);
-  double os_cpu_usage_info_query(os_cpu_usage_info_t *info);
-  void os_cpu_usage_info_destroy(os_cpu_usage_info_t *info);
-
-  video_t *obs_get_video(void);
-]]
-
-
-local s = {}
-
-s.lagged_frames = ""
-s.lagged_total_frames = ""
-s.lagged_percents = ""
-
-s.skipped_frames = ""
-s.skipped_total_frames = ""
-s.skipped_percents = ""
-
-s.dropped_frames = ""
-s.dropped_total_frames = ""
-s.dropped_percents = ""
-
-s.congestion = ""
-s.average_congestion = ""
-
-s.memory_usage = ""
-s.cpu_usage = ""
-s.cpu_cores = ""
-
-s.average_frame_time = ""
-s.fps = ""
-s.target_fps = "30"
-s.average_fps = ""
-
-s.bitrate = ""
-
-s.streaming_status = "Offline"
-s.recording_status = "Off"
-
-s.bitrate = 0
-s.last_bytes_sent = 0
-s.last_bytes_time = 0
-
-s.recording_bitrate = 0
-s.recording_last_bytes_recorded = 0
-
-s.total_ticks = 0
-s.congestion_cumulative = 0
-s.fps_cumulative = 0
-
-s.is_live = false
-
-
-function obs_stats_tick()
-  s.total_ticks = s.total_ticks + 1
-  
-  -- Get CPU usage
-  local cpu_usage = 0.0
-  s.cpu_usage = obsffi.os_cpu_usage_info_query(t.cpu_info)
-  
-  -- Get memory usage
-  local memory_usage = os_get_proc_resident_size() / (1024.0 * 1024.0)
-  
-  -- Get FPS/framerate
-  local fps = obs_get_active_fps()
-  s.fps_cumulative = s.fps_cumulative + fps
-  
-  -- Get average time to render frame
-  local average_frame_time = obs_get_average_frame_time_ns() / 1000000.0
-  
-  -- Get lagged/missed frames
-  local rendered_frames = obs_get_total_frames()
-  local lagged_frames = obs_get_lagged_frames()
-  
-  -- Get skipped frames
-  local encoded_frames = 0
-  local skipped_frames = 0
-  
-  local video = obsffi.obs_get_video()
-  if video ~= nil then
-    encoded_frames = obsffi.video_output_get_total_frames(video)
-    skipped_frames = obsffi.video_output_get_skipped_frames(video)
-  end
-  
-  -- Get dropped frames, congestion and total bytes
-  local dropped_frames = 0
-  local congestion = 0.0
-  local total_bytes = 0
-  local total_frames = 0
-
-  -- local streaming_status = is_live ? "Live" : "Offline"
-  local streaming_status = "Offline"
-  if s.is_live then 
-    streaming_status = "Live"
-  end
-
-  local streaming_duration_total_seconds = 0
-
-  local streaming_output = obs_frontend_get_streaming_output()
-  -- output will be nil when not actually streaming
-  if streaming_output ~= nil then
-    dropped_frames = obs_output_get_frames_dropped(streaming_output)
-    congestion = obs_output_get_congestion(streaming_output)
-    total_bytes = obs_output_get_total_bytes(streaming_output)
-    --local connect_time = obs_output_get_connect_time_ms(streaming_output)
-    
-    -- Streaming status
-    local is_reconnecting = obs_output_reconnecting(streaming_output)
-    if is_reconnecting then
-      streaming_status = "Reconnecting"
-    end
-
-    -- Get streaming duration
-    total_frames = obs_output_get_total_frames(streaming_output)
-    streaming_duration_total_seconds =  total_frames / fps
-
-    obs_output_release(streaming_output)
-  end
-  
-  -- Check that congestion is not NaN
-  if(congestion == congestion) then
-    s.congestion_cumulative = s.congestion_cumulative + congestion
-  end
-
-  -- Get bitrate
-  local current_time = os_gettime_ns()
-  local time_passed = (current_time - s.last_bytes_time) / 1000000000.0
-  
-  if time_passed > 2.0 then
-    local bytes_sent = total_bytes
-    
-    if bytes_sent < s.last_bytes_sent then
-      bytes_sent = 0
-    end
-    if bytes_sent == 0 then
-      s.last_bytes_sent = 0
-    end
-    
-    local bits_between = (bytes_sent - s.last_bytes_sent) * 8
-    bitrate = bits_between / time_passed / 1000.0
-
-    s.last_bytes_sent = bytes_sent
-    s.last_bytes_time = current_time
-  end
-  
-  local recording_duration_total_seconds = 0
-
-  -- Get recording bitrate
-  if obs_frontend_recording_active() then
-    local recording_output = obs_frontend_get_recording_output()
-    local recording_total_bytes = 0
-
-    if recording_output ~= nil then
-      recording_total_bytes = obs_output_get_total_bytes(recording_output)
-
-      -- Get recording duration
-      local recording_total_frames = obs_output_get_total_frames(recording_output)
-      recording_duration_total_seconds = recording_total_frames / fps
-
-      obs_output_release(recording_output)
-    end
-    
-    if time_passed > 2.0 then
-      local recording_bytes_recorded = recording_total_bytes
-      
-      if recording_bytes_recorded < s.recording_last_bytes_recorded then
-        recording_bytes_recorded = 0
-      end
-      if recording_bytes_recorded == 0 then
-        s.recording_last_bytes_recorded = 0
-      end
-      
-      local recording_bits_between = (recording_bytes_recorded - s.recording_last_bytes_recorded) * 8
-      s.recording_bitrate = recording_bits_between / time_passed / 1000.0
-
-      s.recording_last_bytes_recorded = recording_bytes_recorded
-    end
-  end
-
-  -- fix NaN
-  if rendered_frames == 0 then rendered_frames = 1 end
-  if encoded_frames == 0 then encoded_frames = 1 end
-  if total_frames == 0 then total_frames = 1 end
-  if s.total_ticks == 0 then s.total_ticks = 1 end
-
-  -- Update strings with new values
-  s.lagged_frames = tostring(lagged_frames)
-  s.lagged_total_frames = tostring(rendered_frames)
-  s.lagged_percents = string.format("%.1f", 100.0 * lagged_frames / rendered_frames)
-
-  s.skipped_frames = tostring(skipped_frames)
-  s.skipped_total_frames = tostring(encoded_frames)
-  s.skipped_percents = string.format("%.1f", 100.0 * skipped_frames / encoded_frames)
-
-  s.dropped_frames = tostring(dropped_frames)
-  s.dropped_total_frames = tostring(total_frames)
-  s.dropped_percents = string.format("%.1f", 100.0 * dropped_frames / total_frames)
-
-  s.congestion = string.format("%.2f", 100 * congestion)
-  s.average_congestion = string.format("%.2f", 100 * s.congestion_cumulative / s.total_ticks)
-  
-  s.average_frame_time = string.format("%.1f", average_frame_time)
-  s.fps = string.format("%.2g", fps)
-  s.average_fps = string.format("%.2g", s.fps_cumulative / s.total_ticks)
-  
-  s.memory_usage = string.format("%.1f", memory_usage)
-  s.cpu_usage = string.format("%.1f", cpu_usage)
-
-  s.bitrate = string.format("%.0f", bitrate)
-  s.recording_bitrate = string.format("%.0f", s.recording_bitrate)
-
-  s.streaming_status = string.format("%s", streaming_status)
-
-end
-
-function tick_script_update()
-
-  local physical_cores = os_get_physical_cores()
-  local logical_cores = os_get_logical_cores()
-
-  is_live = obs_frontend_streaming_active()
-  if obs_frontend_recording_active() then
-    if obs_frontend_recording_paused() then
-      s.recording_status = "Paused"
-    else 
-      s.recording_status = "On"
-    end
-  else
-    s.recording_status = "Off"
-  end
-  s.cpu_cores = string.format("%sC/%sT", physical_cores, logical_cores)
-
-  if not t.cpu_info then
-    t.cpu_info = obsffi.os_cpu_usage_info_start()
-    res_defer {res = t.cpu_info, defer = obsffi.os_cpu_usage_info_destroy } 
-  end
-end
-
-repeat sleep(0.3)
-  tick_script_update()
-  obs_stats_tick()
-  local info_stats = ''
-  for k, v in pairs(s) do info_stats = info_stats .. ("[%s] [%s] \n"):format(k, v) end
-  local function update_text(source, text) local settings = obs_data_create() obs_data_set_string(settings, "text", text)
-    obs_source_update(source, settings) obs_data_release(settings) end
-  update_text(source, info_stats)
-
-
-until false
-
-]===]
 
 SNIPPETS.s_loop_media = [==[
 
@@ -2095,33 +1744,6 @@ function as_custom_source:_reg_htk(settings)
   end
 end
 
-as_gap_source = {}
-function as_gap_source:create(source) 
-  local instance = {}
-  as_gap_source.update(instance, self) -- self = settings and this shows it on screen
-  return instance
-end
-function as_gap_source:get_name() return i18n"Gap source" end
-function as_gap_source:update(settings) 
-  self.height = obs_data_get_double(settings, "_height")
-  self.width = obs_data_get_double(settings, "_width")
-end
-function as_gap_source:get_properties()
-  local props = obs_properties_create()
-  obs_properties_add_int_slider(props, "_width", i18n"width", 1, 9999, 1)
-  obs_properties_add_int_slider(props, "_height", i18n"height", 1, 9999, 1)
-  return props
-end
-function as_gap_source:load(settings)
-  self.height = obs_data_get_double(settings, "_height")
-  self.width = obs_data_get_double(settings, "_width")
-end
-function as_gap_source:get_height() return self.height end
-function as_gap_source:get_width() return self.width end
-as_gap_source.id = "_gap_source"
-as_gap_source.type = OBS_SOURCE_TYPE_SOURCE
-as_gap_source.output_flags = bit.bor(OBS_SOURCE_VIDEO, OBS_SOURCE_CUSTOM_DRAW)
-
 --bk_obs_script_definition~~~~~~~~~~~~~~~wwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwww
 function script_description() return [[
 <h2> Scripting and macros hotkeys overhaul for OBS Studio </h2>
@@ -2136,7 +1758,6 @@ function script_properties()
   local props = obs_properties_create()
   local props_group1 = obs_properties_create()
   obs_properties_add_bool(props_group1, "_flag_custom", i18n"Console sceneitem custom")
-  obs_properties_add_bool(props_group1, "_flag_gap", i18n"Gap source")
   obs_properties_add_bool(props_group1, "_flag_console_timer", i18n"Console (Timer)")
   local p_suffix = obs_properties_add_float(props_group1, "_interval", "", 0, 999, 0.001)
   obs_property_float_set_suffix(p_suffix," "  .. i18n"interval")
@@ -2175,10 +1796,6 @@ function script_load(settings)
   local as_audio_filter = SourceDef:new({ id = "a_console_source", type = OBS_SOURCE_TYPE_FILTER, output_flags = bit.bor(OBS_SOURCE_AUDIO),})
   obs_register_source(as_audio_filter)
 
-
-  if obs_data_get_bool(settings, "_flag_gap") then
-    obs_register_source(as_gap_source) 
-  end
   if obs_data_get_bool(settings, "_flag_custom") then
     obs_register_source(as_custom_source) 
   end
